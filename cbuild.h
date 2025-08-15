@@ -124,9 +124,9 @@ struct cb_run_args {
 #define cb_cmd_append_dyn(Dynarr, Values, Count) cb_dyn_append((Dynarr), (Values), (Count));
 #define cb_cmd_append(Dynarr, ...) cb_dyn_append((Dynarr),                                     \
                                                  ((char*[]){__VA_ARGS__}),                     \
-                                                 sizeof((char*[]){__VA_ARGS__})/sizeof(char*))
-#define cb_rebuild(argc, argv) _cb_rebuild(argc, argv, __FILE__, 0)
-#define cb_rebuild_with(argc, argv, ...) _cb_rebuild(argc, argv, __FILE__, __VA_ARGS__, 0)
+                                                 (sizeof((char*[]){__VA_ARGS__}) / sizeof(char*)))
+#define cb_rebuild_self(argc, argv) _cb_rebuild(argc, argv, __FILE__, 0)
+#define cb_rebuild_self_with(argc, argv, ...) _cb_rebuild(argc, argv, __FILE__, __VA_ARGS__, 0)
 #define cb_run(Cmd, ...) _cb_run((Cmd), (struct cb_run_args) {     \
                                                    .async = false, \
                                                    .reset = true,  \
@@ -154,7 +154,7 @@ struct cb_run_args {
   } while(0)
 #define cb_dyn_append_custom(Dynarr, Array, Size, Values, Count, Capacity) \
   do {                                                                     \
-    cb_dyn_reserve((Dynarr), (Size));                                      \
+    cb_dyn_reserve((Dynarr), (Dynarr)->Count + (Size));                    \
     memcpy((Dynarr)->Values + (Dynarr)->Count, (Array),                    \
            (Size) * sizeof((Dynarr)->Values[0]));                          \
     (Dynarr)->Count += (Size);                                             \
