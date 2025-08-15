@@ -1,14 +1,6 @@
 #ifndef CBUILD_H
 #define CBUILD_H
 
-#include <string.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <stdarg.h>
-
-#include <sys/stat.h>
-#include <sys/wait.h>
-
 #if defined(__GNUC__) && !defined(__llvm__) && !defined(__INTEL_COMPILER)
 #  define COMPILER_GCC 1
 #elif defined(__clang__) && !defined(_MSC_VER)
@@ -71,6 +63,17 @@ typedef enum {false, true} bool;
 #  endif
 #endif
 
+#include <stdlib.h>
+#include <stdarg.h>
+#include <string.h>
+#if OS_WINDOWS
+#  include <windows.h>
+#else
+#  include <unistd.h>
+#  include <sys/stat.h>
+#  include <sys/wait.h>
+#endif
+
 #ifndef _assert_break
 #  if OS_WINDOWS
 #    define _assert_break() __debugbreak()
@@ -111,7 +114,7 @@ struct cb_run_args {
 #endif
 
 #if OS_WINDOWS
-#  define CB_CMD_REBUILD_SELF(Exe_name, Builder_src) "cl.exe", "/Fe:" (Exe_name), (Builder_src)
+#  define CB_CMD_REBUILD_SELF(Exe_name, Builder_src) "cl.exe", "/Fe:", (Exe_name), (Builder_src)
 #else
 #  define CB_CMD_REBUILD_SELF(Exe_name, Builder_src) "cc", "-o", (Exe_name), (Builder_src)
 #endif
@@ -196,6 +199,41 @@ static void _cb_rebuild(int argc, char **argv, char *builder_src, ...) {
 }
 
 static bool _cb_need_rebuild(char *output_path, struct cb_path_list sources) {
+#if OS_WINDOWS
+  FILETIME output_mtime_large = {};
+  HANDLE output_handle = CreateFileA(output_path, GENERIC_READ, FILE_SHARE_READ,
+                                     0, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+  if (output_handle == INVALID_HANDLE_VALUE ||
+      !GetFileTime(output_handle, 0, 0, &output_mtime_large)) {
+    CloseHandle(output_handle);
+    return true;
+  }
+  CloseHandle(output_handle);
+
+  ULARGE_INTEGER output_mtime = {};
+  output_mtime.LowPart = output_mtime_large.dwLowDateTime;
+  output_mtime.HighPart = output_mtime_large.dwHighDateTime;
+
+  for (size_t i = 0; i < sources.count; ++i) {
+    FILETIME source_mtime_large = {};
+    HANDLE source_handle = CreateFileA(sources.values[i], GENERIC_READ, FILE_SHARE_READ,
+                                       0, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+    if (source_handle == INVALID_HANDLE_VALUE ||
+        !GetFileTime(source_handle, 0, 0, &source_mtime_large)) {
+      CloseHandle(output_handle);
+      return true;
+    }
+    CloseHandle(output_handle);
+
+    ULARGE_INTEGER source_mtime = {};
+    source_mtime.LowPart = source_mtime_large.dwLowDateTime;
+    source_mtime.HighPart = source_mtime_large.dwHighDateTime;
+    if (output_mtime.QuadPart > source_mtime.QuadPart) {
+      return true;
+    }
+  }
+  return false;
+#else
   // NOTE(lb): on `fstat` failure assume needed rebuild
   struct stat output_stat = {};
   if (stat(output_path, &output_stat) < 0) { return true; }
@@ -205,9 +243,35 @@ static bool _cb_need_rebuild(char *output_path, struct cb_path_list sources) {
         output_stat.st_mtime < source_stat.st_mtime) { return true; }
   }
   return false;
+#endif
 }
 
 static void _cb_run(cb_cmd *cmd, struct cb_run_args args) {
+#if OS_WINDOWS
+  char cmdline[MAX_PATH] = {};
+  size_t offset = 0;
+  for (size_t i = 0; i < cmd->count; ++i) {
+    strcat(cmdline, "\"");
+    strcat(cmdline, cmd->values[i]);
+    strcat(cmdline, "\"");
+    if (i != cmd->count - 1) { strcat(cmdline, " "); }
+  }
+
+  STARTUPINFO si = {0};
+  PROCESS_INFORMATION pi = {0};
+  si.cb = sizeof(si);
+
+  CreateProcess(0, cmdline, 0, 0, false, 0, 0, 0, &si, &pi);
+  if (args.reset) {
+    cmd->count = 0;
+  }
+  if (!args.async) {
+    WaitForSingleObject(pi.hProcess, INFINITE);
+  }
+
+  CloseHandle(pi.hProcess);
+  CloseHandle(pi.hThread);
+#else
   pid_t child_pid = fork();
   if (child_pid) {
     if (args.reset) {
@@ -222,6 +286,7 @@ static void _cb_run(cb_cmd *cmd, struct cb_run_args args) {
     cb_cmd_push(&_cmd, 0);
     exit(execvp(cmd->values[0], cmd->values));
   }
+#endif
 }
 
 #endif
