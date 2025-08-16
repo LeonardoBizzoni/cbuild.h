@@ -66,12 +66,17 @@ typedef enum {false, true} bool;
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
+#include <errno.h>
+
 #if OS_WINDOWS
 #  include <windows.h>
+   typedef HANDLE cb_proc_handle;
 #else
 #  include <unistd.h>
 #  include <sys/stat.h>
 #  include <sys/wait.h>
+#  define CB_PROC_HANDLE_INVALID -1
+   typedef pid_t cb_proc_handle;
 #endif
 
 #ifndef _assert_break
@@ -101,13 +106,18 @@ struct cb_path_list {
   size_t count;
   size_t capacity;
 };
-
 typedef struct cb_path_list cb_cmd;
 
 struct cb_run_args {
   bool async;
   bool reset;
 };
+
+typedef struct {
+  cb_proc_handle *values;
+  size_t count;
+  size_t capacity;
+} cb_procs;
 
 #ifndef CB_DYN_DEFAULT_CAPACITY
 #  define CB_DYN_DEFAULT_CAPACITY 8
@@ -135,6 +145,9 @@ struct cb_run_args {
                                                    .reset = true,  \
                                                    __VA_ARGS__     \
                                                 })
+#define cb_procs_push(Dynarr, Value) cb_dyn_push(Dynarr, Value)
+static void cb_procs_wait(cb_procs *procs);
+static void cb_proc_wait(cb_proc_handle handle);
 
 #define cb_dyn_free_custom(Dynarr, Values) free((Dynarr)->Values)
 #define cb_dyn_reserve_custom(Dynarr, HowMany, Values, Count, Capacity)     \
@@ -165,7 +178,7 @@ struct cb_run_args {
 
 static bool _cb_need_rebuild(char *output_path, struct cb_path_list sources);
 static void _cb_rebuild(int argc, char **argv, char *cb_src, ...);
-static void _cb_run(cb_cmd *cmd, struct cb_run_args args);
+static cb_proc_handle _cb_run(cb_cmd *cmd, struct cb_run_args args);
 
 static void _cb_rebuild(int argc, char **argv, char *builder_src, ...) {
   Assert(argc >= 1);
@@ -194,7 +207,7 @@ static void _cb_rebuild(int argc, char **argv, char *builder_src, ...) {
 
   cb_cmd_push(&cmd, exe_name);
   cb_cmd_append_dyn(&cmd, argv, argc);
-  cb_run(&cmd);
+  (void)cb_run(&cmd);
   exit(0);
 }
 
@@ -246,7 +259,9 @@ static bool _cb_need_rebuild(char *output_path, struct cb_path_list sources) {
 #endif
 }
 
-static void _cb_run(cb_cmd *cmd, struct cb_run_args args) {
+static cb_proc_handle _cb_run(cb_cmd *cmd, struct cb_run_args args) {
+  cb_proc_handle res = {};
+
 #if OS_WINDOWS
   char cmdline[MAX_PATH] = {};
   size_t offset = 0;
@@ -262,31 +277,47 @@ static void _cb_run(cb_cmd *cmd, struct cb_run_args args) {
   si.cb = sizeof(si);
 
   CreateProcess(0, cmdline, 0, 0, false, 0, 0, 0, &si, &pi);
+  CloseHandle(pi.hThread);
+  res = pi.hProcess;
+#else
+  res = fork();
+  if (!res) {
+    cb_cmd _cmd = {};
+    cb_cmd_append_dyn(&_cmd, cmd->values, cmd->count);
+    cb_cmd_push(&_cmd, 0);
+    if (execvp(_cmd.values[0], _cmd.values) < 0) {
+      fprintf(stderr, "couldn't start child process `%s`: %s\n",
+              _cmd.values[0], strerror(errno));
+      exit(-1);
+    }
+    // NOTE(lb): unreachable, execvp only returns on error.
+  }
+#endif
+
   if (args.reset) {
     cmd->count = 0;
   }
   if (!args.async) {
-    WaitForSingleObject(pi.hProcess, INFINITE);
+    cb_proc_wait(res);
+    res = CB_PROC_HANDLE_INVALID;
   }
+  return res;
+}
 
-  CloseHandle(pi.hProcess);
-  CloseHandle(pi.hThread);
+static void cb_proc_wait(cb_proc_handle handle) {
+#if OS_WINDOWS
+  WaitForSingleObject(handle, INFINITE);
+  CloseHandle(handle);
 #else
-  pid_t child_pid = fork();
-  if (child_pid) {
-    if (args.reset) {
-      cmd->count = 0;
-    }
-    if (!args.async) {
-      Assert(waitpid(child_pid, 0, 0) == child_pid);
-    }
-  } else {
-    cb_cmd _cmd = {};
-    cb_cmd_append_dyn(&_cmd, cmd->values, cmd->count);
-    cb_cmd_push(&_cmd, 0);
-    exit(execvp(cmd->values[0], cmd->values));
-  }
+  Assert(waitpid(handle, 0, 0) == handle);
 #endif
+}
+
+static void cb_procs_wait(cb_procs *procs) {
+  for (size_t i = 0; i < procs->count; ++i) {
+    cb_proc_wait(procs->values[i]);
+  }
+  cb_dyn_free(procs);
 }
 
 #endif
