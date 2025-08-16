@@ -71,17 +71,37 @@ typedef enum {false, true} bool;
 
 #if OS_WINDOWS
 #  include <windows.h>
-#  define cb_setenv(Varname, Value) SetEnvironmentVariable((Varname), (Value))
+#  include <direct.h>
+#  define win32_stdin stdin
+#  undef stdin
+#  define win32_stdout stdout
+#  undef stdout
+#  define win32_stderr stderr
+#  undef stderr
+#  define cb_setenv(Varname, Value) SetEnvironmentVariableA((Varname), (Value))
+#  define _cb_platform_mkdir _mkdir(path);
+#  define CB_PROC_HANDLE_INVALID INVALID_HANDLE_VALUE
+#  define CB_FD_INVALID INVALID_HANDLE_VALUE
+
    typedef HANDLE cb_fd;
    typedef HANDLE cb_proc_handle;
+
+   static inline char* cb_getenv(char *varname) {
+     static char res[32767] = {};
+     GetEnvironmentVariableA(varname, res, sizeof(res));
+     return res;
+   }
 #else
 #  include <unistd.h>
 #  include <fcntl.h>
 #  include <sys/stat.h>
 #  include <sys/wait.h>
 #  include <sys/stat.h>
+#  define cb_getenv(Varname) getenv((Varname))
 #  define cb_setenv(Varname, Value) setenv((Varname), (Value), true)
+#  define _cb_platform_mkdir mkdir(path, S_IRWXU | (S_IRGRP | S_IXGRP) | (S_IROTH | S_IXOTH));
 #  define CB_PROC_HANDLE_INVALID -1
+#  define CB_FD_INVALID -1
    typedef int32_t cb_fd;
    typedef pid_t cb_proc_handle;
 #endif
@@ -147,7 +167,6 @@ enum {
 #  define CB_CMD_REBUILD_SELF(Exe_name, Builder_src) "cc", "-o", (Exe_name), (Builder_src)
 #endif
 
-#define cb_getenv(Varname) getenv((Varname))
 #define cb_dyn_reserve(Dynarr, HowMany) cb_dyn_reserve_custom((Dynarr), (HowMany), values, count, capacity)
 #define cb_dyn_free(Dynarr) cb_dyn_free_custom((Dynarr), values, count)
 #define cb_dyn_push(Dynarr, Node) cb_dyn_push_custom((Dynarr), (Node), values, count, capacity)
@@ -224,6 +243,19 @@ static void _cb_rebuild(int argc, char **argv, char *builder_src, ...) {
     return;
   }
 
+#if OS_WINDOWS
+  char *old = ".old";
+  char *exe_name_old = malloc(strlen(exe_name) + strlen(old) + 1);
+  memcpy(exe_name_old, exe_name, strlen(exe_name));
+  memcpy(exe_name_old + strlen(exe_name), old, strlen(old) + 1);
+  printf("\trenaming: %s -> %s\n", exe_name, exe_name_old);
+  if (!MoveFileEx(exe_name, exe_name_old,
+                  MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    printf("\tMoveFileEx error: %d\n", GetLastError());
+    exit(-1);
+  }
+#endif
+
   cb_cmd cmd = {};
   cb_cmd_append(&cmd, CB_CMD_REBUILD_SELF(exe_name, builder_src));
   cb_run(&cmd);
@@ -238,7 +270,7 @@ static bool _cb_need_rebuild(char *output_path, struct cb_path_list sources) {
 #if OS_WINDOWS
   FILETIME output_mtime_large = {};
   HANDLE output_handle = CreateFileA(output_path, GENERIC_READ, FILE_SHARE_READ,
-                                     0, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+                                     0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
   if (output_handle == INVALID_HANDLE_VALUE ||
       !GetFileTime(output_handle, 0, 0, &output_mtime_large)) {
     CloseHandle(output_handle);
@@ -253,9 +285,9 @@ static bool _cb_need_rebuild(char *output_path, struct cb_path_list sources) {
   for (size_t i = 0; i < sources.count; ++i) {
     FILETIME source_mtime_large = {};
     HANDLE source_handle = CreateFileA(sources.values[i], GENERIC_READ, FILE_SHARE_READ,
-                                       0, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
-    if (source_handle == INVALID_HANDLE_VALUE ||
-        !GetFileTime(source_handle, 0, 0, &source_mtime_large)) {
+                                       0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    if (source_handle == INVALID_HANDLE_VALUE) { return true; }
+    if (!GetFileTime(source_handle, 0, 0, &source_mtime_large)) {
       CloseHandle(output_handle);
       return true;
     }
@@ -264,7 +296,7 @@ static bool _cb_need_rebuild(char *output_path, struct cb_path_list sources) {
     ULARGE_INTEGER source_mtime = {};
     source_mtime.LowPart = source_mtime_large.dwLowDateTime;
     source_mtime.HighPart = source_mtime_large.dwHighDateTime;
-    if (output_mtime.QuadPart > source_mtime.QuadPart) {
+    if (output_mtime.QuadPart < source_mtime.QuadPart) {
       return true;
     }
   }
@@ -289,17 +321,24 @@ static cb_proc_handle _cb_run(cb_cmd *cmd, struct cb_run_args args) {
   char cmdline[MAX_PATH] = {};
   size_t offset = 0;
   for (size_t i = 0; i < cmd->count; ++i) {
-    strcat(cmdline, "\"");
-    strcat(cmdline, cmd->values[i]);
-    strcat(cmdline, "\"");
+    if (strstr(cmd->values[i], " ") || strstr(cmd->values[i], "\\")) {
+      strcat(cmdline, "\"");
+      strcat(cmdline, cmd->values[i]);
+      strcat(cmdline, "\"");
+    } else {
+      strcat(cmdline, cmd->values[i]);
+    }
     if (i != cmd->count - 1) { strcat(cmdline, " "); }
   }
 
   STARTUPINFO si = {0};
-  PROCESS_INFORMATION pi = {0};
   si.cb = sizeof(si);
 
-  CreateProcess(0, cmdline, 0, 0, false, 0, 0, 0, &si, &pi);
+  PROCESS_INFORMATION pi = {};
+  if (!CreateProcessA(0, cmdline, 0, 0, TRUE, 0, 0, 0, &si, &pi)) {
+    printf("CreateProcess error: %d\n", GetLastError());
+    exit(-1);
+  }
   CloseHandle(pi.hThread);
   res = pi.hProcess;
 #else
@@ -332,6 +371,7 @@ static cb_proc_handle _cb_run(cb_cmd *cmd, struct cb_run_args args) {
 }
 
 static void cb_proc_wait(cb_proc_handle handle) {
+  if (handle == CB_PROC_HANDLE_INVALID) { return; }
 #if OS_WINDOWS
   WaitForSingleObject(handle, INFINITE);
   CloseHandle(handle);
@@ -356,25 +396,32 @@ static size_t _last_occurance_of(char *string, char ch) {
 }
 
 static bool cb_mkdir(char *path) {
-#if OS_WINDOWS
-#else
-  int32_t mkdir_res = mkdir(path, S_IRWXU | (S_IRGRP | S_IXGRP) | (S_IROTH | S_IXOTH));
+  int32_t mkdir_res = _cb_platform_mkdir(path);
   if (mkdir_res < 0 && errno == ENOENT) {
     size_t parent_end = _last_occurance_of(path, '/');
     if (!parent_end) { return false; }
-    char *parent = malloc(parent_end);
+    char *parent = malloc(parent_end + 1);
     memcpy(parent, path, parent_end);
+    parent[parent_end] = 0;
     cb_mkdir(parent);
     free(parent);
-    mkdir(path, S_IRWXU | (S_IRGRP | S_IXGRP) | (S_IROTH | S_IXOTH));
+    _cb_platform_mkdir(path);
   }
 
   return !mkdir_res;
-#endif
 }
 
 static cb_fd cb_open(char *path, cb_acf permission) {
 #if OS_WINDOWS
+  DWORD access_flags = 0;
+  if(permission & CB_ACF_READ)   { access_flags |= GENERIC_READ; }
+  if(permission & CB_ACF_WRITE)  { access_flags |= GENERIC_WRITE; }
+  if(permission & CB_ACF_APPEND) { access_flags |= FILE_APPEND_DATA; }
+  SECURITY_ATTRIBUTES sa = {0};
+  sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+  sa.bInheritHandle = TRUE;
+  return CreateFileA(path, access_flags, 0, &sa,
+                     OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
 #else
   int32_t flags = O_CREAT;
   if (permission & CB_ACF_APPEND) { flags |= O_APPEND | O_CREAT; }
@@ -385,17 +432,16 @@ static cb_fd cb_open(char *path, cb_acf permission) {
   } else if (permission & CB_ACF_WRITE) {
     flags |= O_WRONLY | O_CREAT | O_TRUNC;
   }
-
-  cb_fd res = open(path, flags, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-  fsync(res);
-  return res;
+  return open(path, flags, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 #endif
 }
 
 static void cb_close(cb_fd fd) {
 #if OS_WINDOWS
+  if (fd != CB_FD_INVALID) { FlushFileBuffers(fd); }
   CloseHandle(fd);
 #else
+  if (fd != CB_FD_INVALID) { fsync(fd); }
   close(fd);
 #endif
 }
