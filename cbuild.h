@@ -67,15 +67,22 @@ typedef enum {false, true} bool;
 #include <stdarg.h>
 #include <string.h>
 #include <errno.h>
+#include <stdint.h>
 
 #if OS_WINDOWS
 #  include <windows.h>
+#  define cb_setenv(Varname, Value) SetEnvironmentVariable((Varname), (Value))
+   typedef HANDLE cb_fd;
    typedef HANDLE cb_proc_handle;
 #else
 #  include <unistd.h>
+#  include <fcntl.h>
 #  include <sys/stat.h>
 #  include <sys/wait.h>
+#  include <sys/stat.h>
+#  define cb_setenv(Varname, Value) setenv((Varname), (Value), true)
 #  define CB_PROC_HANDLE_INVALID -1
+   typedef int32_t cb_fd;
    typedef pid_t cb_proc_handle;
 #endif
 
@@ -111,6 +118,10 @@ typedef struct cb_path_list cb_cmd;
 struct cb_run_args {
   bool async;
   bool reset;
+
+  cb_fd stdin;
+  cb_fd stdout;
+  cb_fd stderr;
 };
 
 typedef struct {
@@ -118,6 +129,13 @@ typedef struct {
   size_t count;
   size_t capacity;
 } cb_procs;
+
+typedef uint8_t cb_acf;
+enum {
+  CB_ACF_READ       = 1 << 0,
+  CB_ACF_WRITE      = 1 << 1,
+  CB_ACF_APPEND     = 1 << 2,
+};
 
 #ifndef CB_DYN_DEFAULT_CAPACITY
 #  define CB_DYN_DEFAULT_CAPACITY 8
@@ -129,8 +147,9 @@ typedef struct {
 #  define CB_CMD_REBUILD_SELF(Exe_name, Builder_src) "cc", "-o", (Exe_name), (Builder_src)
 #endif
 
+#define cb_getenv(Varname) getenv((Varname))
 #define cb_dyn_reserve(Dynarr, HowMany) cb_dyn_reserve_custom((Dynarr), (HowMany), values, count, capacity)
-#define cb_dyn_free(Dynarr) cb_dyn_free_custom((Dynarr), values)
+#define cb_dyn_free(Dynarr) cb_dyn_free_custom((Dynarr), values, count)
 #define cb_dyn_push(Dynarr, Node) cb_dyn_push_custom((Dynarr), (Node), values, count, capacity)
 #define cb_dyn_append(Dynarr, Array, Size) cb_dyn_append_custom((Dynarr), (Array), (Size), values, count, capacity)
 #define cb_cmd_push(Dynarr, Value) cb_dyn_push(Dynarr, Value)
@@ -140,16 +159,20 @@ typedef struct {
                                                  (sizeof((char*[]){__VA_ARGS__}) / sizeof(char*)))
 #define cb_rebuild_self(argc, argv) _cb_rebuild(argc, argv, __FILE__, 0)
 #define cb_rebuild_self_with(argc, argv, ...) _cb_rebuild(argc, argv, __FILE__, __VA_ARGS__, 0)
-#define cb_run(Cmd, ...) _cb_run((Cmd), (struct cb_run_args) {     \
-                                                   .async = false, \
-                                                   .reset = true,  \
-                                                   __VA_ARGS__     \
-                                                })
+#define cb_run(Cmd, ...) _cb_run((Cmd), (struct cb_run_args) { \
+                                           .async = false,     \
+                                           .reset = true,      \
+                                           __VA_ARGS__         \
+                                        })
 #define cb_procs_push(Dynarr, Value) cb_dyn_push(Dynarr, Value)
 static void cb_procs_wait(cb_procs *procs);
 static void cb_proc_wait(cb_proc_handle handle);
 
-#define cb_dyn_free_custom(Dynarr, Values) free((Dynarr)->Values)
+#define cb_dyn_free_custom(Dynarr, Values, Count) \
+  do {                                            \
+    free((Dynarr)->Values);                       \
+    (Dynarr)->Count = 0;                          \
+  } while (0)
 #define cb_dyn_reserve_custom(Dynarr, HowMany, Values, Count, Capacity)     \
   do {                                                                      \
     if (!(Dynarr)->Capacity) {                                              \
@@ -282,6 +305,10 @@ static cb_proc_handle _cb_run(cb_cmd *cmd, struct cb_run_args args) {
 #else
   res = fork();
   if (!res) {
+    if (args.stdin)  { dup2(args.stdin, STDIN_FILENO); }
+    if (args.stdout) { dup2(args.stdout, STDOUT_FILENO); }
+    if (args.stderr) { dup2(args.stderr, STDERR_FILENO); }
+
     cb_cmd _cmd = {};
     cb_cmd_append_dyn(&_cmd, cmd->values, cmd->count);
     cb_cmd_push(&_cmd, 0);
@@ -318,6 +345,59 @@ static void cb_procs_wait(cb_procs *procs) {
     cb_proc_wait(procs->values[i]);
   }
   cb_dyn_free(procs);
+}
+
+static size_t _last_occurance_of(char *string, char ch) {
+  char *res = string;
+  for (char *curr = string; curr && *curr; ++curr) {
+    if (*curr == ch) { res = curr; }
+  }
+  return res - string;
+}
+
+static bool cb_mkdir(char *path) {
+#if OS_WINDOWS
+#else
+  int32_t mkdir_res = mkdir(path, S_IRWXU | (S_IRGRP | S_IXGRP) | (S_IROTH | S_IXOTH));
+  if (mkdir_res < 0 && errno == ENOENT) {
+    size_t parent_end = _last_occurance_of(path, '/');
+    if (!parent_end) { return false; }
+    char *parent = malloc(parent_end);
+    memcpy(parent, path, parent_end);
+    cb_mkdir(parent);
+    free(parent);
+    mkdir(path, S_IRWXU | (S_IRGRP | S_IXGRP) | (S_IROTH | S_IXOTH));
+  }
+
+  return !mkdir_res;
+#endif
+}
+
+static cb_fd cb_open(char *path, cb_acf permission) {
+#if OS_WINDOWS
+#else
+  int32_t flags = O_CREAT;
+  if (permission & CB_ACF_APPEND) { flags |= O_APPEND | O_CREAT; }
+  if ((permission & CB_ACF_READ) && (permission & CB_ACF_WRITE)) {
+    flags |= O_RDWR;
+  } else if (permission & CB_ACF_READ) {
+    flags |= O_RDONLY;
+  } else if (permission & CB_ACF_WRITE) {
+    flags |= O_WRONLY | O_CREAT | O_TRUNC;
+  }
+
+  cb_fd res = open(path, flags, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+  fsync(res);
+  return res;
+#endif
+}
+
+static void cb_close(cb_fd fd) {
+#if OS_WINDOWS
+  CloseHandle(fd);
+#else
+  close(fd);
+#endif
 }
 
 #endif
