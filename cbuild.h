@@ -333,6 +333,10 @@ static cb_proc_handle _cb_run(cb_cmd *cmd, struct cb_run_args args) {
 
   STARTUPINFO si = {0};
   si.cb = sizeof(si);
+  si.dwFlags = STARTF_USESTDHANDLES;
+  si.hStdInput  = args.stdin  ? args.stdin  : GetStdHandle(STD_INPUT_HANDLE);
+  si.hStdOutput = args.stdout ? args.stdout : GetStdHandle(STD_OUTPUT_HANDLE);
+  si.hStdError  = args.stderr ? args.stderr : GetStdHandle(STD_ERROR_HANDLE);
 
   PROCESS_INFORMATION pi = {};
   if (!CreateProcessA(0, cmdline, 0, 0, TRUE, 0, 0, 0, &si, &pi)) {
