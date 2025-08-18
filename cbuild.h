@@ -68,6 +68,7 @@ typedef enum {false, true} bool;
 #include <string.h>
 #include <errno.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #if OS_WINDOWS
 #  include <windows.h>
@@ -348,9 +349,12 @@ static cb_proc_handle _cb_run(cb_cmd *cmd, struct cb_run_args args) {
 #else
   res = fork();
   if (!res) {
-    if (args.stdin)  { dup2(args.stdin, STDIN_FILENO); }
     if (args.stdout) { dup2(args.stdout, STDOUT_FILENO); }
     if (args.stderr) { dup2(args.stderr, STDERR_FILENO); }
+    if (args.stdin)  {
+      lseek(args.stdin, 0, SEEK_SET);
+      dup2(args.stdin, STDIN_FILENO);
+    }
 
     cb_cmd _cmd = {};
     cb_cmd_append_dyn(&_cmd, cmd->values, cmd->count);
@@ -391,30 +395,6 @@ static void cb_procs_wait(cb_procs *procs) {
   cb_dyn_free(procs);
 }
 
-static size_t _last_occurance_of(char *string, char ch) {
-  char *res = string;
-  for (char *curr = string; curr && *curr; ++curr) {
-    if (*curr == ch) { res = curr; }
-  }
-  return res - string;
-}
-
-static bool cb_mkdir(char *path) {
-  int32_t mkdir_res = _cb_platform_mkdir(path);
-  if (mkdir_res < 0 && errno == ENOENT) {
-    size_t parent_end = _last_occurance_of(path, '/');
-    if (!parent_end) { return false; }
-    char *parent = malloc(parent_end + 1);
-    memcpy(parent, path, parent_end);
-    parent[parent_end] = 0;
-    cb_mkdir(parent);
-    free(parent);
-    _cb_platform_mkdir(path);
-  }
-
-  return !mkdir_res;
-}
-
 static cb_fd cb_open(char *path, cb_acf permission) {
 #if OS_WINDOWS
   DWORD access_flags = 0;
@@ -440,6 +420,27 @@ static cb_fd cb_open(char *path, cb_acf permission) {
 #endif
 }
 
+static char* cb_read(cb_fd fd) {
+#if OS_WINDOWS
+#else
+  struct stat file_stat;
+  if (!fstat(fd, &file_stat)) {
+    char *res = malloc(file_stat.st_size);
+    if(pread(fd, res, file_stat.st_size, 0) >= 0) {
+      return res;
+    }
+  }
+  return 0;
+#endif
+}
+
+static void cb_write(cb_fd fd, char *buffer, size_t buffsize) {
+#if OS_WINDOWS
+#else
+  write(fd, buffer, buffsize);
+#endif
+}
+
 static void cb_close(cb_fd fd) {
 #if OS_WINDOWS
   if (fd != CB_FD_INVALID) { FlushFileBuffers(fd); }
@@ -447,6 +448,51 @@ static void cb_close(cb_fd fd) {
 #else
   if (fd != CB_FD_INVALID) { fsync(fd); }
   close(fd);
+#endif
+}
+
+static size_t _last_occurance_of(char *string, char ch) {
+  char *res = string;
+  for (char *curr = string; curr && *curr; ++curr) {
+    if (*curr == ch) { res = curr; }
+  }
+  return res - string;
+}
+
+static bool cb_mkdir(char *path) {
+  int32_t mkdir_res = _cb_platform_mkdir(path);
+  if (mkdir_res < 0 && errno == ENOENT) {
+    size_t parent_end = _last_occurance_of(path, '/');
+    if (!parent_end) { return false; }
+    char *parent = malloc(parent_end + 1);
+    memcpy(parent, path, parent_end);
+    parent[parent_end] = 0;
+    cb_mkdir(parent);
+    free(parent);
+    _cb_platform_mkdir(path);
+  }
+
+  return !mkdir_res;
+}
+
+static void cb_rmdir(char *path) {
+#if OS_WINDOWS
+#else
+  rmdir(path);
+#endif
+}
+
+static void cb_fs_delete(char *path) {
+#if OS_WINDOWS
+#else
+  unlink(path);
+#endif
+}
+
+static void cb_fs_rename(char *path, char *to) {
+#if OS_WINDOWS
+#else
+  rename(path, to);
 #endif
 }
 
