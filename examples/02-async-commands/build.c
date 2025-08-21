@@ -3,7 +3,7 @@
 int main(int argc, char **argv) {
   cb_rebuild_self(argc, argv);
 
-  cb_cmd cmd = {};
+  CB_Cmd cmd = {};
   CB_ProcessList procs = {};
   cb_cmd_append(&cmd, "ls", "-lah", ".");
   cb_proclist_push(&procs, cb_run(&cmd, .async = true));

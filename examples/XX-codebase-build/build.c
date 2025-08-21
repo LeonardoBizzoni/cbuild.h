@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  cb_cmd cmd = {};
+  CB_Cmd cmd = {};
   cb_cmd_append(&cmd, "git", "submodule", "update", "--recursive");
   CB_Process codebase_updater = cb_run(&cmd, .async = true);
 

@@ -3,7 +3,7 @@
 int main(int argc, char **argv) {
   cb_rebuild_self(argc, argv);
 
-  cb_cmd cmd = {};
+  CB_Cmd cmd = {};
 #if OS_WINDOWS
   cb_cmd_append(&cmd, "cl.exe", "main.c", "/Femain.exe");
 #else

@@ -122,14 +122,14 @@ typedef enum {false, true} bool;
            : ((Last) ? ((Last)->Next = (Nodeptr), (Last) = (Nodeptr))          \
                      : ((Head)->Next = (Last) = (Nodeptr))))
 
-struct cb_path_list {
+struct CB_PathList {
   char **values;
   size_t count;
   size_t capacity;
 };
-typedef struct cb_path_list cb_cmd;
+typedef struct CB_PathList CB_Cmd;
 
-struct cb_run_args {
+struct CB_RunArgs {
   bool async;
   bool reset;
 
@@ -167,10 +167,16 @@ enum {
 #  define CB_DYN_DEFAULT_CAPACITY 8
 #endif
 
+#ifndef CB_RECOMPILE_OPTIONS
+#  define CB_RECOMPILE_OPTIONS
+#endif
+
 #if OS_WINDOWS
-#  define CB_CMD_REBUILD_SELF(Exe_name, Builder_src) "cl.exe", "/Fe:", (Exe_name), (Builder_src)
+#  define CB_CMD_REBUILD_SELF(Exe_name, Builder_src) "cl.exe", "/Fe:", (Exe_name),       \
+                                                     (Builder_src), CB_RECOMPILE_OPTIONS
 #else
-#  define CB_CMD_REBUILD_SELF(Exe_name, Builder_src) "cc", "-o", (Exe_name), (Builder_src)
+#  define CB_CMD_REBUILD_SELF(Exe_name, Builder_src) "cc", "-o", (Exe_name), (Builder_src), \
+                                                     CB_RECOMPILE_OPTIONS
 #endif
 
 #define cb_dyn_reserve(Dynarr, HowMany) cb_dyn_reserve_custom((Dynarr), (HowMany), values, count, capacity)
@@ -182,12 +188,13 @@ enum {
 #define cb_cmd_append(Dynarr, ...) cb_dyn_append((Dynarr),                                     \
                                                  ((char*[]){__VA_ARGS__}),                     \
                                                  (sizeof((char*[]){__VA_ARGS__}) / sizeof(char*)))
+#define cb_println(Level, Fmt, ...) cb_print((Level), Fmt "\n", ##__VA_ARGS__)
 #define cb_rebuild_self(argc, argv) _cb_rebuild(argc, argv, __FILE__, 0)
 #define cb_rebuild_self_with(argc, argv, ...) _cb_rebuild(argc, argv, __FILE__, __VA_ARGS__, 0)
-#define cb_run(Cmd, ...) _cb_run((Cmd), (struct cb_run_args) { \
-                                           .async = false,     \
-                                           .reset = true,      \
-                                           __VA_ARGS__         \
+#define cb_run(Cmd, ...) _cb_run((Cmd), (struct CB_RunArgs) { \
+                                           .async = false,    \
+                                           .reset = true,     \
+                                           __VA_ARGS__        \
                                         })
 #define cb_proclist_push(Dynarr, Value) cb_dyn_push(Dynarr, Value)
 
@@ -222,6 +229,14 @@ enum {
     (Dynarr)->Count += (Size);                                             \
   } while(0)
 
+#define cb_handle_write(Handle, Content) _is_literal(Content) ? _cb_handle_write_lit(Handle, Content) : _cb_handle_write_dyn(Handle, Content)
+#define _cb_handle_write_lit(Handle, Content) \
+  _cb_handle_write((Handle), (Content), (sizeof((Content)) / sizeof(*(Content))))
+#define _cb_handle_write_dyn(Handle, Content) \
+  _cb_handle_write((Handle), (Content), strlen((Content)))
+#define _is_literal(x) _is_literal_(x)
+#define _is_literal_(x) _is_literal_f(#x, sizeof(#x) - 1)
+
 static char* cb_format(const char *format, ...);
 static void cb_print(CB_LogLevel level, const char *fmt, ...);
 static char* cb_getenv(char *varname);
@@ -231,17 +246,18 @@ static void cb_proclist_wait(CB_ProcessList *procs);
 static CB_Handle cb_handle_open(char *path, CB_AccessFlag permission);
 static void cb_handle_close(CB_Handle fd);
 static char* cb_handle_read(CB_Handle fd);
-static void cb_handle_write(CB_Handle fd, char *buffer, size_t buffsize);
 static bool cb_dir_create(char *path);
 static void cb_dir_delete(char *path);
 static void cb_file_delete(char *path);
 static bool cb_file_rename(char *path, char *to);
 
+internal void _cb_handle_write(CB_Handle fd, char *buffer, size_t buffsize);
 internal char* _cb_format(const char *format, va_list args);
-internal bool _cb_need_rebuild(char *output_path, struct cb_path_list sources);
+internal bool _cb_need_rebuild(char *output_path, struct CB_PathList sources);
 internal void _cb_rebuild(int argc, char **argv, char *cb_src, ...);
-internal CB_Process _cb_run(cb_cmd *cmd, struct cb_run_args args);
+internal CB_Process _cb_run(CB_Cmd *cmd, struct CB_RunArgs args);
 internal size_t _last_occurance_of(char *string, char ch);
+internal bool _is_literal_f(char *str, size_t l);
 
 
 // ==============================================================================
@@ -279,7 +295,7 @@ static void cb_print(CB_LogLevel level, const char *fmt, ...) {
 
  print_str: ;
   va_start(args, fmt);
-  printf("%s\n", _cb_format(fmt, args));
+  printf("%s", _cb_format(fmt, args));
   va_end(args);
 #undef ANSI_COLOR_RED
 #undef ANSI_COLOR_GREEN
@@ -313,7 +329,7 @@ static bool cb_setenv(char *varname, char *value) {
 
 static void cb_process_wait(CB_Process *proc) {
   if (proc->handle == CB_PROC_INVALID) {
-    cb_print(CB_LogLevel_Warn, "Waiting on invalid process handle");
+    cb_println(CB_LogLevel_Warn, "Waiting on invalid process handle");
     return;
   }
 
@@ -378,7 +394,7 @@ static CB_Handle cb_handle_open(char *path, CB_AccessFlag permission) {
 
 static void cb_handle_close(CB_Handle fd) {
   if (fd == CB_HANDLE_INVALID) {
-    cb_print(CB_LogLevel_Warn, "Closing invalid handle");
+    cb_println(CB_LogLevel_Warn, "Closing invalid handle");
     return;
   }
 
@@ -393,7 +409,7 @@ static void cb_handle_close(CB_Handle fd) {
 
 static char* cb_handle_read(CB_Handle fd) {
   if (fd == CB_HANDLE_INVALID) {
-    cb_print(CB_LogLevel_Warn, "Reading from invalid handle");
+    cb_println(CB_LogLevel_Warn, "Reading from invalid handle");
     return 0;
   }
 
@@ -433,12 +449,13 @@ static char* cb_handle_read(CB_Handle fd) {
 #endif
 }
 
-static void cb_handle_write(CB_Handle fd, char *buffer, size_t buffsize) {
+static void _cb_handle_write(CB_Handle fd, char *buffer, size_t buffsize) {
   if (fd == CB_HANDLE_INVALID) {
-    cb_print(CB_LogLevel_Warn, "Writing to invalid handle");
+    cb_println(CB_LogLevel_Warn, "Writing to invalid handle");
     return;
   }
 
+  while (!buffer[buffsize - 1]) { buffsize -= 1; }
 #if OS_WINDOWS
   uint64_t to_write = buffsize;
   uint64_t total_write = 0;
@@ -509,7 +526,7 @@ internal char* _cb_format(const char *format, va_list args) {
   return res;
 }
 
-internal CB_Process _cb_run(cb_cmd *cmd, struct cb_run_args args) {
+internal CB_Process _cb_run(CB_Cmd *cmd, struct CB_RunArgs args) {
   CB_Process res = {};
 
 #if OS_WINDOWS
@@ -538,8 +555,8 @@ internal CB_Process _cb_run(cb_cmd *cmd, struct cb_run_args args) {
                   FORMAT_MESSAGE_IGNORE_INSERTS,
                   0, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
                   (LPTSTR)&lpMsgBuf, 0, 0);
-    cb_print(CB_LogLevel_Error, "Child process creation failed with error %u: %s",
-             error, lpMsgBuf);
+    cb_println(CB_LogLevel_Error, "Child process creation failed with error %u: %s",
+               error, lpMsgBuf);
     exit(-1);
   }
 
@@ -548,8 +565,8 @@ internal CB_Process _cb_run(cb_cmd *cmd, struct cb_run_args args) {
 #else
   res.handle = fork();
   if (res.handle < 0) {
-    cb_print(CB_LogLevel_Error, "Child process creation failed with error %d: %s\n",
-             errno, strerror(errno));
+    cb_println(CB_LogLevel_Error, "Child process creation failed with error %d: %s\n",
+               errno, strerror(errno));
     exit(-1);
   } else if (!res.handle) {
     if (args.stdout) { dup2(args.stdout, STDOUT_FILENO); }
@@ -559,12 +576,12 @@ internal CB_Process _cb_run(cb_cmd *cmd, struct cb_run_args args) {
       dup2(args.stdin, STDIN_FILENO);
     }
 
-    cb_cmd _cmd = {};
+    CB_Cmd _cmd = {};
     cb_cmd_append_dyn(&_cmd, cmd->values, cmd->count);
     cb_cmd_push(&_cmd, 0);
     if (execvp(_cmd.values[0], _cmd.values) < 0) {
-      cb_print(CB_LogLevel_Error, "Child process creation failed with error %d: %s\n",
-               errno, strerror(errno));
+      cb_println(CB_LogLevel_Error, "Child process creation failed with error %d: %s\n",
+                 errno, strerror(errno));
       exit(-1);
     }
     // NOTE(lb): unreachable, execvp only returns on error.
@@ -585,9 +602,8 @@ internal void _cb_rebuild(int argc, char **argv, char *builder_src, ...) {
   Assert(argc >= 1);
   char *exe_name = argv[0];
 
-  struct cb_path_list sources = {};
+  struct CB_PathList sources = {};
   cb_dyn_push(&sources, builder_src);
-
   va_list args;
   va_start(args, builder_src);
   for (;;) {
@@ -601,18 +617,24 @@ internal void _cb_rebuild(int argc, char **argv, char *builder_src, ...) {
     cb_dyn_free(&sources);
     return;
   }
+  cb_println(CB_LogLevel_Info, "rebuilding %s", exe_name);
 
 #if OS_WINDOWS
   char *exe_name_old = cb_format("%s.old", exe_name);
   if (!cb_file_rename(exe_name, exe_name_old)) {
-    cb_print(CB_LogLevel_Error, "File rename failed: %s -> %s",
-             exe_name, exe_name_old);
+    cb_println(CB_LogLevel_Info, "File rename failed: %s -> %s",
+               exe_name, exe_name_old);
     exit(-1);
   }
 #endif
 
-  cb_cmd cmd = {};
+  CB_Cmd cmd = {};
   cb_cmd_append(&cmd, CB_CMD_REBUILD_SELF(exe_name, builder_src));
+  cb_print(CB_LogLevel_Info, "running: `");
+  for (int32_t i = 0; i < cmd.count; ++i) {
+    printf("%s ", cmd.values[i]);
+  }
+  printf("\b`\n");
   CB_Process recompiler = cb_run(&cmd);
   if (recompiler.status_code) {
 #if OS_WINDOWS
@@ -627,7 +649,7 @@ internal void _cb_rebuild(int argc, char **argv, char *builder_src, ...) {
   exit(0);
 }
 
-internal bool _cb_need_rebuild(char *output_path, struct cb_path_list sources) {
+internal bool _cb_need_rebuild(char *output_path, struct CB_PathList sources) {
 #if OS_WINDOWS
   FILETIME output_mtime_large = {};
   HANDLE output_handle = CreateFileA(output_path, GENERIC_READ, FILE_SHARE_READ,
@@ -663,13 +685,18 @@ internal bool _cb_need_rebuild(char *output_path, struct cb_path_list sources) {
   }
   return false;
 #else
-  // NOTE(lb): on `fstat` failure assume needed rebuild
   struct stat output_stat = {};
-  if (stat(output_path, &output_stat) < 0) { return true; }
+  if (stat(output_path, &output_stat) < 0) { goto rebuild_failure; }
   for (size_t i = 0; i < sources.count; ++i) {
     struct stat source_stat = {};
-    if (stat(sources.values[i], &source_stat) < 0 ||
-        output_stat.st_mtime < source_stat.st_mtime) { return true; }
+    if (stat(sources.values[i], &source_stat) < 0) {
+    rebuild_failure:
+      cb_println(CB_LogLevel_Error,
+                 "`%s` modification time unreadable. Is the file path correct?",
+                 sources.values[i]);
+      exit(-1);
+    }
+    if (output_stat.st_mtime < source_stat.st_mtime) { return true; }
   }
   return false;
 #endif
@@ -681,6 +708,21 @@ internal size_t _last_occurance_of(char *string, char ch) {
     if (*curr == ch) { res = curr; }
   }
   return res - string;
+}
+
+internal bool _is_literal_f(char *str, size_t l) {
+  const char *e = str + l;
+  if (str[0] == 'L') str++;
+  if (str[0] != '"') return false;
+  for (; str != e; str = strchr(str + 1, '"')) {
+    if (!str) { return false; }
+    for (str++;
+         *str == '\f' || *str == '\n' || *str == '\r' ||
+         *str == '\t' || *str == '\v';
+         ++str);
+    if (*str != '"') { return false; }
+  }
+  return true;
 }
 
 #endif
