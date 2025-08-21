@@ -79,7 +79,7 @@ typedef enum {false, true} bool;
 #  undef stdout
 #  define win32_stderr stderr
 #  undef stderr
-#  define _cb_platform_mkdir _mkdir(path);
+#  define _cb_platform_mkdir(Path) _mkdir((Path));
 #  define MAX_ENVVAR 32767
 #  define CB_PROC_INVALID INVALID_HANDLE_VALUE
 #  define CB_HANDLE_INVALID INVALID_HANDLE_VALUE
@@ -92,7 +92,7 @@ typedef enum {false, true} bool;
 #  include <sys/stat.h>
 #  include <sys/wait.h>
 #  include <sys/stat.h>
-#  define _cb_platform_mkdir mkdir(path, S_IRWXU | (S_IRGRP | S_IXGRP) | (S_IROTH | S_IXOTH));
+#  define _cb_platform_mkdir(Path) mkdir((Path), S_IRWXU | (S_IRGRP | S_IXGRP) | (S_IROTH | S_IXOTH));
 #  define CB_PROC_INVALID -1
 #  define CB_HANDLE_INVALID -1
    typedef int32_t CB_Handle;
