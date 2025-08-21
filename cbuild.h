@@ -80,6 +80,7 @@ typedef enum {false, true} bool;
 #  define win32_stderr stderr
 #  undef stderr
 #  define _cb_platform_mkdir _mkdir(path);
+#  define MAX_ENVVAR 32767
 #  define CB_PROC_INVALID INVALID_HANDLE_VALUE
 #  define CB_HANDLE_INVALID INVALID_HANDLE_VALUE
 
@@ -224,27 +225,31 @@ enum {
 static char* cb_format(const char *format, ...);
 static void cb_print(CB_LogLevel level, const char *fmt, ...);
 static char* cb_getenv(char *varname);
-static int32_t cb_setenv(char *varname, char *value);
-static void cb_processesslist_wait(CB_ProcessList *procs);
+static bool cb_setenv(char *varname, char *value);
 static void cb_process_wait(CB_Process *handle);
+static void cb_processesslist_wait(CB_ProcessList *procs);
+static CB_Handle cb_handle_open(char *path, CB_AccessFlag permission);
+static void cb_handle_close(CB_Handle fd);
+static char* cb_handle_read(CB_Handle fd);
+static void cb_handle_write(CB_Handle fd, char *buffer, size_t buffsize);
+static bool cb_dir_create(char *path);
+static void cb_dir_delete(char *path);
+static void cb_file_delete(char *path);
+static bool cb_file_rename(char *path, char *to);
 
+internal char* _cb_format(const char *format, va_list args);
 internal bool _cb_need_rebuild(char *output_path, struct cb_path_list sources);
 internal void _cb_rebuild(int argc, char **argv, char *cb_src, ...);
 internal CB_Process _cb_run(cb_cmd *cmd, struct cb_run_args args);
 internal size_t _last_occurance_of(char *string, char ch);
+
 
 // ==============================================================================
 // Implementation
 static char* cb_format(const char *format, ...) {
   va_list args;
   va_start(args, format);
-  uint32_t needed_bytes = vsnprintf(0, 0, format, args) + 1;
-  va_end(args);
-
-  char *res = malloc(needed_bytes);
-  va_start(args, format);
-  (void)vsnprintf(res, needed_bytes, format, args);
-  res[needed_bytes] = 0;
+  char *res = _cb_format(format, args);
   va_end(args);
   return res;
 }
@@ -274,7 +279,7 @@ static void cb_print(CB_LogLevel level, const char *fmt, ...) {
 
  print_str: ;
   va_start(args, fmt);
-  printf("%s\n", cb_format(fmt, args));
+  printf("%s\n", _cb_format(fmt, args));
   va_end(args);
 #undef ANSI_COLOR_RED
 #undef ANSI_COLOR_GREEN
@@ -287,8 +292,8 @@ static void cb_print(CB_LogLevel level, const char *fmt, ...) {
 
 static char* cb_getenv(char *varname) {
 #if OS_WINDOWS
-  char *res = malloc((sizeof *res) * 32767);
-  if (!GetEnvironmentVariableA(varname, res, (sizeof *res) * 32767)) {
+  char *res = malloc(MAX_ENVVAR);
+  if (!GetEnvironmentVariableA(varname, res, MAX_ENVVAR)) {
     free(res);
     res = 0;
   }
@@ -298,7 +303,7 @@ static char* cb_getenv(char *varname) {
 #endif
 }
 
-static int32_t cb_setenv(char *varname, char *value) {
+static bool cb_setenv(char *varname, char *value) {
 #if OS_WINDOWS
   return SetEnvironmentVariableA(varname, value);
 #else
@@ -314,6 +319,7 @@ static void cb_process_wait(CB_Process *proc) {
 
 #if OS_WINDOWS
   WaitForSingleObject(proc->handle, INFINITE);
+  GetExitCodeProcess(proc->handle, &proc->status_code);
   CloseHandle(proc->handle);
 #else
   int32_t status = 0;
@@ -337,25 +343,35 @@ static void cb_processesslist_wait(CB_ProcessList *procs) {
 
 static CB_Handle cb_handle_open(char *path, CB_AccessFlag permission) {
 #if OS_WINDOWS
+  SECURITY_ATTRIBUTES security_attributes = {sizeof(SECURITY_ATTRIBUTES), 0, 0};
   DWORD access_flags = 0;
-  if(permission & CB_AccessFlag_Read)   { access_flags |= GENERIC_READ; }
-  if(permission & CB_AccessFlag_Write)  { access_flags |= GENERIC_WRITE; }
-  if(permission & CB_AccessFlag_Append) { access_flags |= FILE_APPEND_DATA; }
-  SECURITY_ATTRIBUTES sa = {0};
-  sa.nLength = sizeof(SECURITY_ATTRIBUTES);
-  sa.bInheritHandle = TRUE;
-  return CreateFileA(path, access_flags, 0, &sa,
-                     OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+  DWORD share_mode = 0;
+  DWORD creation_disposition = OPEN_EXISTING;
+
+  if(permission & CB_AccessFlag_Read) { access_flags |= GENERIC_READ; }
+  if(permission & CB_AccessFlag_Write) {
+    access_flags |= GENERIC_WRITE;
+    creation_disposition = CREATE_ALWAYS;
+  }
+  if(permission & CB_AccessFlag_Append) {
+    access_flags |= FILE_APPEND_DATA;
+    creation_disposition = OPEN_ALWAYS;
+  }
+  return CreateFileA(path, access_flags,
+                     share_mode, &security_attributes,
+                     creation_disposition,
+                     FILE_ATTRIBUTE_NORMAL, 0);
 #else
   int32_t flags = O_CREAT;
-  if (permission & CB_AccessFlag_Append) { flags |= O_APPEND | O_CREAT; }
-  if ((permission & CB_AccessFlag_Read) && (permission & CB_AccessFlag_Write)) {
+  if ((permission & CB_AccessFlag_Read) &&
+      ((permission & CB_AccessFlag_Write) || (permission & CB_AccessFlag_Append))) {
     flags |= O_RDWR;
   } else if (permission & CB_AccessFlag_Read) {
     flags |= O_RDONLY;
   } else if (permission & CB_AccessFlag_Write) {
-    flags |= O_WRONLY | O_CREAT | O_TRUNC;
+    flags |= O_WRONLY | O_TRUNC;
   }
+  if (permission & CB_AccessFlag_Append) { flags |= O_APPEND; }
   return open(path, flags, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 #endif
 }
@@ -382,6 +398,29 @@ static char* cb_handle_read(CB_Handle fd) {
   }
 
 #if OS_WINDOWS
+  LARGE_INTEGER file_size = {0};
+  GetFileSizeEx(fd, &file_size);
+
+  uint64_t to_read = file_size.QuadPart;
+  uint64_t total_read = 0;
+  uint8_t *ptr = malloc(to_read + 1);
+
+  for(;total_read < to_read;) {
+    uint64_t amount64 = to_read - total_read;
+    uint32_t amount32 = amount64 > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)amount64;
+    OVERLAPPED overlapped = {0};
+    DWORD bytes_read = 0;
+    (void)ReadFile(fd, ptr + total_read, amount32, &bytes_read, &overlapped);
+    total_read += bytes_read;
+    if(bytes_read != amount32) { break; }
+  }
+
+  ptr[to_read] = 0;
+  if(total_read != to_read) {
+    free(ptr);
+    ptr = 0;
+  }
+  return ptr;
 #else
   struct stat file_stat;
   if (!fstat(fd, &file_stat)) {
@@ -401,6 +440,17 @@ static void cb_handle_write(CB_Handle fd, char *buffer, size_t buffsize) {
   }
 
 #if OS_WINDOWS
+  uint64_t to_write = buffsize;
+  uint64_t total_write = 0;
+  char *ptr = buffer;
+  for(;total_write < to_write;) {
+    uint64_t amount64 = to_write - total_write;;
+    uint32_t amount32 = amount64 > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)amount64;
+    DWORD bytes_written = 0;
+    WriteFile(fd, ptr + total_write, amount32, &bytes_written, 0);
+    total_write += bytes_written;
+    if(bytes_written != amount32) { break; }
+  }
 #else
   write(fd, buffer, buffsize);
 #endif
@@ -422,8 +472,9 @@ static bool cb_dir_create(char *path) {
   return !mkdir_res;
 }
 
-static void cb_dir_remove(char *path) {
+static void cb_dir_delete(char *path) {
 #if OS_WINDOWS
+  _rmdir(path);
 #else
   rmdir(path);
 #endif
@@ -431,6 +482,7 @@ static void cb_dir_remove(char *path) {
 
 static void cb_file_delete(char *path) {
 #if OS_WINDOWS
+  _unlink(path);
 #else
   unlink(path);
 #endif
@@ -438,11 +490,23 @@ static void cb_file_delete(char *path) {
 
 static bool cb_file_rename(char *path, char *to) {
 #if OS_WINDOWS
-  return MoveFileEx(exe_name, exe_name_old,
-                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)
+  return MoveFileEx(path, to,
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
 #else
   return !rename(path, to);
 #endif
+}
+
+
+internal char* _cb_format(const char *format, va_list args) {
+  va_list args2;
+  va_copy(args2, args);
+  uint32_t needed_bytes = vsnprintf(0, 0, format, args2) + 1;
+  va_end(args2);
+
+  char *res = malloc(needed_bytes);
+  (void)vsnprintf(res, needed_bytes, format, args);
+  return res;
 }
 
 internal CB_Process _cb_run(cb_cmd *cmd, struct cb_run_args args) {
@@ -467,19 +531,20 @@ internal CB_Process _cb_run(cb_cmd *cmd, struct cb_run_args args) {
 
   PROCESS_INFORMATION pi = {};
   if (!CreateProcessA(0, cmdline, 0, 0, TRUE, 0, 0, 0, &si, &pi)) {
-    char *msg = 0;
+    LPVOID lpMsgBuf;
     DWORD error = GetLastError();
-    FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
-                   FORMAT_MESSAGE_IGNORE_INSERTS,
-                   0, error,
-                   MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-                   &msg, 0, 0);
-    cb_print(CB_LogLevel_Error, "Child process creation failed with error %d: %s\n",
-             error, msg);
+    FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER |
+                  FORMAT_MESSAGE_FROM_SYSTEM |
+                  FORMAT_MESSAGE_IGNORE_INSERTS,
+                  0, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                  (LPTSTR)&lpMsgBuf, 0, 0);
+    cb_print(CB_LogLevel_Error, "Child process creation failed with error %u: %s",
+             error, lpMsgBuf);
     exit(-1);
   }
+
   CloseHandle(pi.hThread);
-  res = pi.hProcess;
+  res.handle = pi.hProcess;
 #else
   res.handle = fork();
   if (res.handle < 0) {
@@ -549,7 +614,12 @@ internal void _cb_rebuild(int argc, char **argv, char *builder_src, ...) {
   cb_cmd cmd = {};
   cb_cmd_append(&cmd, CB_CMD_REBUILD_SELF(exe_name, builder_src));
   CB_Process recompiler = cb_run(&cmd);
-  if (recompiler.status_code) { exit(-1); }
+  if (recompiler.status_code) {
+#if OS_WINDOWS
+    cb_file_rename(exe_name_old, exe_name);
+#endif
+    exit(-1);
+  }
 
   cb_cmd_push(&cmd, exe_name);
   cb_cmd_append_dyn(&cmd, argv, argc);
