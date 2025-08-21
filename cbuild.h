@@ -189,7 +189,7 @@ enum {
                                            .reset = true,      \
                                            __VA_ARGS__         \
                                         })
-#define cb_processesslist_push(Dynarr, Value) cb_dyn_push(Dynarr, Value)
+#define cb_proclist_push(Dynarr, Value) cb_dyn_push(Dynarr, Value)
 
 #define cb_dyn_free_custom(Dynarr, Values, Count) \
   do {                                            \
@@ -227,7 +227,7 @@ static void cb_print(CB_LogLevel level, const char *fmt, ...);
 static char* cb_getenv(char *varname);
 static bool cb_setenv(char *varname, char *value);
 static void cb_process_wait(CB_Process *handle);
-static void cb_processesslist_wait(CB_ProcessList *procs);
+static void cb_proclist_wait(CB_ProcessList *procs);
 static CB_Handle cb_handle_open(char *path, CB_AccessFlag permission);
 static void cb_handle_close(CB_Handle fd);
 static char* cb_handle_read(CB_Handle fd);
@@ -334,7 +334,7 @@ static void cb_process_wait(CB_Process *proc) {
 #endif
 }
 
-static void cb_processesslist_wait(CB_ProcessList *procs) {
+static void cb_proclist_wait(CB_ProcessList *procs) {
   for (size_t i = 0; i < procs->count; ++i) {
     cb_process_wait(&procs->values[i]);
   }

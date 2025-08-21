@@ -4,13 +4,13 @@ int main(int argc, char **argv) {
   cb_rebuild_self(argc, argv);
 
   cb_cmd cmd = {};
-  cb_procs procs = {};
+  CB_ProcessList procs = {};
   cb_cmd_append(&cmd, "ls", "-lah", ".");
-  cb_procs_push(&procs, cb_run(&cmd, .async = true));
+  cb_proclist_push(&procs, cb_run(&cmd, .async = true));
   cb_cmd_append(&cmd, "ls", "-lah", "/");
-  cb_procs_push(&procs, cb_run(&cmd, .async = true));
+  cb_proclist_push(&procs, cb_run(&cmd, .async = true));
   cb_cmd_append(&cmd, "pwd");
-  cb_procs_push(&procs, cb_run(&cmd, .async = true));
+  cb_proclist_push(&procs, cb_run(&cmd, .async = true));
 
-  cb_procs_wait(&procs);
+  cb_proclist_wait(&procs);
 }

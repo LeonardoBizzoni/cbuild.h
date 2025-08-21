@@ -3,7 +3,8 @@
 int main(int argc, char **argv) {
   cb_rebuild_self(argc, argv);
 
-  cb_fd file = cb_open("ls-curdir-log", CB_ACF_READ | CB_ACF_WRITE);
+  CB_Handle file = cb_handle_open("ls-curdir-log", CB_AccessFlag_Read |
+						   CB_AccessFlag_Write);
 
   cb_cmd cmd = {};
   cb_cmd_append(&cmd, "ls", "-lah", ".");
@@ -12,5 +13,5 @@ int main(int argc, char **argv) {
   cb_cmd_append(&cmd, "cat");
   cb_run(&cmd, .stdin = file);
 
-  cb_close(file);
+  cb_handle_close(file);
 }

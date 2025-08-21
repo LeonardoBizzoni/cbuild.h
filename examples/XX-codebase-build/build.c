@@ -18,6 +18,7 @@
 #  define CppFlags "/TP", "/std:c++latest"
 #  define CAnnoyingWarnings "/wd4477", "/wd4996"
 #  define CppAnnoyingWarnings
+#  define OPENGL "gdi32.lib", "opengl32.lib"
 #  define Output "/Fe" Outfile ".exe"
 #else
 #  define SystemSharedLibs "-lpthread", "-lm"
@@ -38,7 +39,6 @@
                             "-Wno-sign-conversion",                   \
                             "-Wno-unused-parameter"
 #  define CppAnnoyingWarnings CAnnoyingWarnings            \
-                              "-Wno-gnu-anonymous-struct", \
                               "-Wno-gnu-anonymous-struct", \
                               "-Wno-nested-anon-types"
 #  define Output "-o", Outfile
@@ -80,7 +80,7 @@ int main(int argc, char **argv) {
 
   cb_cmd cmd = {};
   cb_cmd_append(&cmd, "git", "submodule", "update", "--recursive");
-  cb_proc_handle codebase_updater = cb_run(&cmd, .async = true);
+  CB_Process codebase_updater = cb_run(&cmd, .async = true);
 
 #if OS_WINDOWS
   cb_cmd_push(&cmd, "cl.exe");
@@ -93,8 +93,7 @@ int main(int argc, char **argv) {
 #endif
 
   cb_cmd_append(&cmd, Output);
-  cb_cmd_append(&cmd, Infile, Codebase_Path);
-  cb_cmd_append(&cmd, GenericFlags, SystemSharedLibs);
+  cb_cmd_append(&cmd, Infile, Codebase_Path, GenericFlags);
 
   if (cpp) {
     cb_cmd_append(&cmd, CppFlags, CppAnnoyingWarnings);
@@ -108,19 +107,20 @@ int main(int argc, char **argv) {
     cb_cmd_append(&cmd, ReleaseFlags);
   }
 
+  if (sound) { cb_cmd_append(&cmd, Codebase_Module_Sound); }
   if (gui) {
     cb_cmd_append(&cmd, Codebase_Module_Gui);
-    cb_cmd_append(&cmd, OPENGL);
 #if OS_LINUX || OS_BSD
     cb_cmd_append(&cmd, !strcmp(cb_getenv("XDG_SESSION_TYPE"), "x11")
                         ? X11 : Wayland);
 #endif
   }
 
-  if (sound) {
-    cb_cmd_append(&cmd, Codebase_Module_Sound);
-  }
+  // NOTE(lb): Windows requires dlls to be all specified
+  //           after the `/link` flag from what i understood
+  cb_cmd_append(&cmd, SystemSharedLibs);
+  if (gui) {cb_cmd_append(&cmd, OPENGL); }
 
-  cb_proc_wait(codebase_updater);
+  cb_process_wait(&codebase_updater);
   cb_run(&cmd);
 }
