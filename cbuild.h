@@ -530,7 +530,7 @@ internal CB_Process _cb_run(CB_Cmd *cmd, struct CB_RunArgs args) {
   CB_Process res = {};
 
 #if OS_WINDOWS
-  char cmdline[MAX_PATH] = {};
+  char cmdline[32767] = {};
   size_t offset = 0;
   for (size_t i = 0; i < cmd->count; ++i) {
     strcat(cmdline, strstr(cmd->values[i], " ") || strstr(cmd->values[i], "\\")
