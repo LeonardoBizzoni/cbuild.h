@@ -8,10 +8,10 @@ int main(int argc, char **argv) {
 
   CB_Cmd cmd = {};
   cb_cmd_append(&cmd, "ls", "-lah", ".");
-  cb_run(&cmd, .stdout = file);
+  cb_cmd_run(&cmd, .stdout = file);
 
   cb_cmd_append(&cmd, "cat");
-  cb_run(&cmd, .stdin = file);
+  cb_cmd_run(&cmd, .stdin = file);
 
   cb_handle_close(file);
 }

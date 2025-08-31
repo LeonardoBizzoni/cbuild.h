@@ -129,7 +129,7 @@ struct CB_PathList {
 };
 typedef struct CB_PathList CB_Cmd;
 
-struct CB_RunArgs {
+struct Cb_Cmd_RunArgs {
   bool async;
   bool reset;
 
@@ -191,10 +191,10 @@ enum {
 #define cb_println(Level, Fmt, ...) cb_print((Level), Fmt "\n", ##__VA_ARGS__)
 #define cb_rebuild_self(argc, argv) _cb_rebuild(argc, argv, __FILE__, 0)
 #define cb_rebuild_self_with(argc, argv, ...) _cb_rebuild(argc, argv, __FILE__, __VA_ARGS__, 0)
-#define cb_run(Cmd, ...) _cb_run((Cmd), (struct CB_RunArgs) { \
-                                           .async = false,    \
-                                           .reset = true,     \
-                                           __VA_ARGS__        \
+#define cb_cmd_run(Cmd, ...) _cb_cmd_run((Cmd), (struct Cb_Cmd_RunArgs) { \
+                                           .async = false,                \
+                                           .reset = true,                 \
+                                           __VA_ARGS__                    \
                                         })
 #define cb_proclist_push(Dynarr, Value) cb_dyn_push(Dynarr, Value)
 
@@ -255,7 +255,7 @@ internal void _cb_handle_write(CB_Handle fd, char *buffer, size_t buffsize);
 internal char* _cb_format(const char *format, va_list args);
 internal bool _cb_need_rebuild(char *output_path, struct CB_PathList sources);
 internal void _cb_rebuild(int argc, char **argv, char *cb_src, ...);
-internal CB_Process _cb_run(CB_Cmd *cmd, struct CB_RunArgs args);
+internal CB_Process _cb_cmd_run(CB_Cmd *cmd, struct Cb_Cmd_RunArgs args);
 internal size_t _last_occurance_of(char *string, char ch);
 internal bool _is_literal_f(char *str, size_t l);
 
@@ -526,7 +526,7 @@ internal char* _cb_format(const char *format, va_list args) {
   return res;
 }
 
-internal CB_Process _cb_run(CB_Cmd *cmd, struct CB_RunArgs args) {
+internal CB_Process _cb_cmd_run(CB_Cmd *cmd, struct Cb_Cmd_RunArgs args) {
   CB_Process res = {};
 
 #if OS_WINDOWS
@@ -635,7 +635,7 @@ internal void _cb_rebuild(int argc, char **argv, char *builder_src, ...) {
     printf("%s ", cmd.values[i]);
   }
   printf("\b`\n");
-  CB_Process recompiler = cb_run(&cmd);
+  CB_Process recompiler = cb_cmd_run(&cmd);
   if (recompiler.status_code) {
 #if OS_WINDOWS
     cb_file_rename(exe_name_old, exe_name);
@@ -645,7 +645,7 @@ internal void _cb_rebuild(int argc, char **argv, char *builder_src, ...) {
 
   cb_cmd_push(&cmd, exe_name);
   cb_cmd_append_dyn(&cmd, argv, argc);
-  (void)cb_run(&cmd);
+  (void)cb_cmd_run(&cmd);
   exit(0);
 }
 

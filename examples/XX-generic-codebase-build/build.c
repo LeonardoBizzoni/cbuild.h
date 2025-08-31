@@ -18,7 +18,6 @@
 #  define CppFlags "/TP", "/std:c++latest"
 #  define CAnnoyingWarnings "/wd4477", "/wd4996"
 #  define CppAnnoyingWarnings
-#  define OPENGL "gdi32.lib", "opengl32.lib"
 #  define Output "/Fe" Outfile ".exe"
 #else
 #  define SystemSharedLibs "-lpthread", "-lm"
@@ -43,7 +42,6 @@
                               "-Wno-nested-anon-types"
 #  define Output "-o", Outfile
 
-#  define OPENGL "-lGL", "-lGLU", "-DUSING_OPENGL=1"
 #  if OS_LINUX
 #    define X11 "-DLNX_X11=1", "-lX11", "-lXext"
 #    define Wayland "-DLNX_WAYLAND=1", "-lxkbcommon"
@@ -80,7 +78,7 @@ int main(int argc, char **argv) {
 
   CB_Cmd cmd = {};
   cb_cmd_append(&cmd, "git", "submodule", "update", "--recursive");
-  CB_Process codebase_updater = cb_run(&cmd, .async = true);
+  CB_Process codebase_updater = cb_cmd_run(&cmd, .async = true);
 
 #if OS_WINDOWS
   cb_cmd_push(&cmd, "cl.exe");
@@ -116,11 +114,8 @@ int main(int argc, char **argv) {
 #endif
   }
 
-  // NOTE(lb): Windows requires dlls to be all specified
-  //           after the `/link` flag from what i understood
   cb_cmd_append(&cmd, SystemSharedLibs);
-  if (gui) {cb_cmd_append(&cmd, OPENGL); }
 
   cb_process_wait(&codebase_updater);
-  cb_run(&cmd);
+  cb_cmd_run(&cmd);
 }

@@ -9,5 +9,5 @@ int main(int argc, char **argv) {
 #else
   cb_cmd_append(&cmd, "cc", "main.c", "-o", "main");
 #endif
-  cb_run(&cmd);
+  cb_cmd_run(&cmd);
 }

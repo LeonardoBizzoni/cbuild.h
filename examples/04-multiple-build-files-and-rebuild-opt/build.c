@@ -26,5 +26,5 @@ int main(int argc, char **argv) {
 
   CB_Cmd cmd = {};
   cb_cmd_append(&cmd, "cc", "-o", "main", "src/main.c");
-  cb_run(&cmd);
+  cb_cmd_run(&cmd);
 }
