@@ -191,6 +191,7 @@ enum {
 #define cb_println(Level, Fmt, ...) cb_print((Level), Fmt "\n", ##__VA_ARGS__)
 #define cb_rebuild_self(argc, argv) _cb_rebuild(argc, argv, __FILE__, 0)
 #define cb_rebuild_self_with(argc, argv, ...) _cb_rebuild(argc, argv, __FILE__, __VA_ARGS__, 0)
+#define cb_is_outdated(OutputFile, ...) _cb_is_outdated((OutputFile), __VA_ARGS__, 0)
 #define cb_cmd_run(Cmd, ...) _cb_cmd_run((Cmd), (struct Cb_Cmd_RunArgs) { \
                                            .async = false,                \
                                            .reset = true,                 \
@@ -251,12 +252,12 @@ static void cb_dir_delete(char *path);
 static void cb_file_delete(char *path);
 static bool cb_file_rename(char *path, char *to);
 static bool cb_file_exists(char *path);
-static bool cb_need_rebuild(char *output, ...);
 
 internal void _cb_handle_write(CB_Handle fd, char *buffer, size_t buffsize);
 internal char* _cb_format(const char *format, va_list args);
 internal bool _cb_need_rebuild(char *output_path, struct CB_PathList sources);
 internal void _cb_rebuild(int argc, char **argv, char *cb_src, ...);
+internal bool _cb_is_outdated(char *output, ...);
 internal CB_Process _cb_cmd_run(CB_Cmd *cmd, struct Cb_Cmd_RunArgs args);
 internal size_t _last_occurance_of(char *string, char ch);
 internal bool _is_literal_f(char *str, size_t l);
@@ -501,7 +502,8 @@ static bool cb_file_exists(char *path) {
   return true;
 }
 
-static bool cb_need_rebuild(char *output, ...) {
+
+internal bool _cb_is_outdated(char *output, ...) {
   struct CB_PathList sources = {};
   va_list args;
   va_start(args, output);
@@ -513,7 +515,6 @@ static bool cb_need_rebuild(char *output, ...) {
   va_end(args);
   return _cb_need_rebuild(output, sources);
 }
-
 
 internal void _cb_handle_write(CB_Handle fd, char *buffer, size_t buffsize) {
   if (fd == CB_HANDLE_INVALID) {
@@ -676,8 +677,9 @@ internal void _cb_rebuild(int argc, char **argv, char *builder_src, ...) {
 internal bool _cb_need_rebuild(char *output_path, struct CB_PathList sources) {
 #if OS_WINDOWS
   FILETIME output_mtime_large = {};
-  HANDLE output_handle = CreateFileA(output_path, GENERIC_READ, FILE_SHARE_READ,
-                                     0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+  HANDLE output_handle = CreateFileA(output_path, GENERIC_READ,
+                                     FILE_SHARE_READ, 0, OPEN_EXISTING,
+                                     FILE_ATTRIBUTE_NORMAL, 0);
   if (output_handle == INVALID_HANDLE_VALUE ||
       !GetFileTime(output_handle, 0, 0, &output_mtime_large)) {
     CloseHandle(output_handle);
@@ -691,8 +693,9 @@ internal bool _cb_need_rebuild(char *output_path, struct CB_PathList sources) {
 
   for (size_t i = 0; i < sources.count; ++i) {
     FILETIME source_mtime_large = {};
-    HANDLE source_handle = CreateFileA(sources.values[i], GENERIC_READ, FILE_SHARE_READ,
-                                       0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    HANDLE source_handle = CreateFileA(sources.values[i], GENERIC_READ,
+                                       FILE_SHARE_READ, 0, OPEN_EXISTING,
+                                       FILE_ATTRIBUTE_NORMAL, 0);
     if (source_handle == INVALID_HANDLE_VALUE) { return true; }
     if (!GetFileTime(source_handle, 0, 0, &source_mtime_large)) {
       CloseHandle(output_handle);
@@ -710,14 +713,14 @@ internal bool _cb_need_rebuild(char *output_path, struct CB_PathList sources) {
   return false;
 #else
   struct stat output_stat = {};
-  if (stat(output_path, &output_stat) < 0) { goto rebuild_failure; }
+  if (stat(output_path, &output_stat) < 0) { return true; }
   for (size_t i = 0; i < sources.count; ++i) {
     struct stat source_stat = {};
     if (stat(sources.values[i], &source_stat) < 0) {
     rebuild_failure:
       cb_println(CB_LogLevel_Error,
-                 "`%s` modification time unreadable. Is the file path correct?",
-                 sources.values[i]);
+                 "`%s` modification time unreadable: %s",
+                 sources.values[i], strerror(errno));
       exit(-1);
     }
     if (output_stat.st_mtime < source_stat.st_mtime) { return true; }
