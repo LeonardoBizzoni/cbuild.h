@@ -250,6 +250,8 @@ static bool cb_dir_create(char *path);
 static void cb_dir_delete(char *path);
 static void cb_file_delete(char *path);
 static bool cb_file_rename(char *path, char *to);
+static bool cb_file_exists(char *path);
+static bool cb_need_rebuild(char *output, ...);
 
 internal void _cb_handle_write(CB_Handle fd, char *buffer, size_t buffsize);
 internal char* _cb_format(const char *format, va_list args);
@@ -449,30 +451,6 @@ static char* cb_handle_read(CB_Handle fd) {
 #endif
 }
 
-static void _cb_handle_write(CB_Handle fd, char *buffer, size_t buffsize) {
-  if (fd == CB_HANDLE_INVALID) {
-    cb_println(CB_LogLevel_Warn, "Writing to invalid handle");
-    return;
-  }
-
-  while (!buffer[buffsize - 1]) { buffsize -= 1; }
-#if OS_WINDOWS
-  uint64_t to_write = buffsize;
-  uint64_t total_write = 0;
-  char *ptr = buffer;
-  for(;total_write < to_write;) {
-    uint64_t amount64 = to_write - total_write;;
-    uint32_t amount32 = amount64 > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)amount64;
-    DWORD bytes_written = 0;
-    WriteFile(fd, ptr + total_write, amount32, &bytes_written, 0);
-    total_write += bytes_written;
-    if(bytes_written != amount32) { break; }
-  }
-#else
-  write(fd, buffer, buffsize);
-#endif
-}
-
 static bool cb_dir_create(char *path) {
   int32_t mkdir_res = _cb_platform_mkdir(path);
   if (mkdir_res < 0 && errno == ENOENT) {
@@ -514,6 +492,52 @@ static bool cb_file_rename(char *path, char *to) {
 #endif
 }
 
+static bool cb_file_exists(char *path) {
+  CB_Handle file = cb_handle_open(path, CB_AccessFlag_Read);
+  if (file == CB_HANDLE_INVALID) {
+    return false;
+  }
+  cb_handle_close(file);
+  return true;
+}
+
+static bool cb_need_rebuild(char *output, ...) {
+  struct CB_PathList sources = {};
+  va_list args;
+  va_start(args, output);
+  for (;;) {
+    char *path = va_arg(args, char*);
+    if (!path) { break; }
+    cb_dyn_push(&sources, path);
+  }
+  va_end(args);
+  return _cb_need_rebuild(output, sources);
+}
+
+
+internal void _cb_handle_write(CB_Handle fd, char *buffer, size_t buffsize) {
+  if (fd == CB_HANDLE_INVALID) {
+    cb_println(CB_LogLevel_Warn, "Writing to invalid handle");
+    return;
+  }
+
+  while (!buffer[buffsize - 1]) { buffsize -= 1; }
+#if OS_WINDOWS
+  uint64_t to_write = buffsize;
+  uint64_t total_write = 0;
+  char *ptr = buffer;
+  for(;total_write < to_write;) {
+    uint64_t amount64 = to_write - total_write;;
+    uint32_t amount32 = amount64 > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)amount64;
+    DWORD bytes_written = 0;
+    WriteFile(fd, ptr + total_write, amount32, &bytes_written, 0);
+    total_write += bytes_written;
+    if(bytes_written != amount32) { break; }
+  }
+#else
+  write(fd, buffer, buffsize);
+#endif
+}
 
 internal char* _cb_format(const char *format, va_list args) {
   va_list args2;
