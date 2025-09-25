@@ -580,8 +580,8 @@ internal CB_Process _cb_cmd_run(CB_Cmd *cmd, struct Cb_Cmd_RunArgs args) {
                   FORMAT_MESSAGE_IGNORE_INSERTS,
                   0, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
                   (LPTSTR)&lpMsgBuf, 0, 0);
-    cb_println(CB_LogLevel_Error, "Child process creation failed with error %u: %s",
-               error, lpMsgBuf);
+    cb_println(CB_LogLevel_Error, "Child process `%s` creation failed with error %u: %s",
+               cmd->values[0], error, lpMsgBuf);
     exit(-1);
   }
 
@@ -590,8 +590,8 @@ internal CB_Process _cb_cmd_run(CB_Cmd *cmd, struct Cb_Cmd_RunArgs args) {
 #else
   res.handle = fork();
   if (res.handle < 0) {
-    cb_println(CB_LogLevel_Error, "Child process creation failed with error %d: %s\n",
-               errno, strerror(errno));
+    cb_println(CB_LogLevel_Error, "Child process `%s` creation failed with error %d: %s\n",
+               cmd->values[0], errno, strerror(errno));
     exit(-1);
   } else if (!res.handle) {
     if (args.stdout) { dup2(args.stdout, STDOUT_FILENO); }
@@ -605,8 +605,8 @@ internal CB_Process _cb_cmd_run(CB_Cmd *cmd, struct Cb_Cmd_RunArgs args) {
     cb_cmd_append_dyn(&_cmd, cmd->values, cmd->count);
     cb_cmd_push(&_cmd, 0);
     if (execvp(_cmd.values[0], _cmd.values) < 0) {
-      cb_println(CB_LogLevel_Error, "Child process creation failed with error %d: %s\n",
-                 errno, strerror(errno));
+      cb_println(CB_LogLevel_Error, "Child process `%s` creation failed with error %d: %s\n",
+                 cmd->values[0], errno, strerror(errno));
       exit(-1);
     }
     // NOTE(lb): unreachable, execvp only returns on error.
