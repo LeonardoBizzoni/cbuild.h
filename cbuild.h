@@ -172,8 +172,9 @@ enum {
 #endif
 
 #if OS_WINDOWS
-#  define CB_CMD_REBUILD_SELF(Exe_name, Builder_src) "cl.exe", "/Fe:", (Exe_name),       \
-                                                     (Builder_src), CB_RECOMPILE_OPTIONS
+#  define CB_CMD_REBUILD_SELF(Exe_name, Builder_src) "cl.exe", "/Fe:", (Exe_name), \
+                                                     (Builder_src), "/nologo",     \
+                                                     CB_RECOMPILE_OPTIONS
 #else
 #  define CB_CMD_REBUILD_SELF(Exe_name, Builder_src) "cc", "-o", (Exe_name), (Builder_src), \
                                                      CB_RECOMPILE_OPTIONS
@@ -242,6 +243,7 @@ static char* cb_format(const char *format, ...);
 static void cb_print(CB_LogLevel level, const char *fmt, ...);
 static char* cb_getenv(char *varname);
 static bool cb_setenv(char *varname, char *value);
+static void cb_cmd_print(CB_Cmd *cmd);
 static void cb_process_wait(CB_Process *handle);
 static void cb_proclist_wait(CB_ProcessList *procs);
 static CB_Handle cb_handle_open(char *path, CB_AccessFlag permission);
@@ -330,6 +332,14 @@ static bool cb_setenv(char *varname, char *value) {
 #endif
 }
 
+static void cb_cmd_print(CB_Cmd *cmd) {
+  cb_print(CB_LogLevel_Info, "Command: `");
+  for (int32_t i = 0; i < cmd->count; ++i) {
+    printf("%s ", cmd->values[i]);
+  }
+  printf("\b`\n");
+}
+
 static void cb_process_wait(CB_Process *proc) {
   if (proc->handle == CB_PROC_INVALID) {
     cb_println(CB_LogLevel_Warn, "Waiting on invalid process handle");
@@ -382,15 +392,17 @@ static CB_Handle cb_handle_open(char *path, CB_AccessFlag permission) {
                      FILE_ATTRIBUTE_NORMAL, 0);
 #else
   int32_t flags = O_CREAT;
-  if ((permission & CB_AccessFlag_Read) &&
-      ((permission & CB_AccessFlag_Write) || (permission & CB_AccessFlag_Append))) {
+  if (permission & CB_AccessFlag_Append) {
+    flags |= (permission & CB_AccessFlag_Read) ? O_RDWR : O_WRONLY;
+    flags |= O_APPEND;
+  } else if ((permission & CB_AccessFlag_Write) &&
+             (permission & CB_AccessFlag_Read)) {
     flags |= O_RDWR;
   } else if (permission & CB_AccessFlag_Read) {
     flags |= O_RDONLY;
   } else if (permission & CB_AccessFlag_Write) {
     flags |= O_WRONLY | O_TRUNC;
   }
-  if (permission & CB_AccessFlag_Append) { flags |= O_APPEND; }
   return open(path, flags, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 #endif
 }
