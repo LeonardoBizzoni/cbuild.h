@@ -13,6 +13,13 @@ typedef struct {
   } signature;
 } CB_Generator;
 
+static void cb_gen_write(CB_Generator *gen, char *filepath, bool append_mode);
+
+static void cb_gen_push(CB_Generator *gen, char *string);
+static void cb_gen_push_func_begin(CB_Generator *gen, char *signature_no_args);
+static void cb_gen_push_func_arg(CB_Generator *gen, char *argument);
+static void cb_gen_push_func_end(CB_Generator *gen, bool implementation);
+
 // ======================================================================
 // Implementations
 static void cb_gen_write(CB_Generator *gen, char *filepath, bool append_mode) {
@@ -39,12 +46,12 @@ static void cb_gen_push(CB_Generator *gen, char *string) {
   gen->total_length += strlen(string);
 }
 
-static void cb_gen_sig_begin(CB_Generator *gen, char *signature_no_args) {
+static void cb_gen_push_func_begin(CB_Generator *gen, char *signature_no_args) {
   cb_gen_push(gen, cb_format("%s(", signature_no_args));
   gen->signature.spacing = strlen(signature_no_args) + 1;
 }
 
-static void cb_gen_sig_arg(CB_Generator *gen, char *argument) {
+static void cb_gen_push_func_arg(CB_Generator *gen, char *argument) {
   if (gen->signature.has_args > 0 && gen->signature.has_args % 4 == 0) {
     cb_gen_push(gen, ",\n");
     cb_gen_push(gen, cb_format("%*s", gen->signature.spacing, ""));
@@ -55,7 +62,7 @@ static void cb_gen_sig_arg(CB_Generator *gen, char *argument) {
   cb_gen_push(gen, argument);
 }
 
-static void cb_gen_sig_end(CB_Generator *gen, bool implementation) {
+static void cb_gen_push_func_end(CB_Generator *gen, bool implementation) {
   if (!gen->signature.has_args) {
     cb_gen_push(gen, "void");
   }
