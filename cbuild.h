@@ -56,6 +56,7 @@
 #endif
 
 #if !CPP
+#  define BOOL_DEFINED 1
 #  if __STDC_VERSION__ >= 199901L
 #    include <stdbool.h>
 #  else
@@ -99,6 +100,14 @@ typedef enum {false, true} bool;
    typedef pid_t CB_ProcHandle;
 #endif
 
+#define ANSI_COLOR_RED     "\x1b[31m"
+#define ANSI_COLOR_GREEN   "\x1b[32m"
+#define ANSI_COLOR_YELLOW  "\x1b[33m"
+#define ANSI_COLOR_BLUE    "\x1b[34m"
+#define ANSI_COLOR_MAGENTA "\x1b[35m"
+#define ANSI_COLOR_CYAN    "\x1b[36m"
+#define ANSI_COLOR_RESET   "\x1b[0m"
+
 #define internal static
 #ifndef _assert_break
 #  if OS_WINDOWS
@@ -107,7 +116,24 @@ typedef enum {false, true} bool;
 #    define _assert_break() __builtin_trap()
 #  endif
 #endif
-#define Assert(COND) do { if (!(COND)) { _assert_break(); } } while (0)
+
+
+internal void cb_assertion_break(const char *condition,
+                                 const char *file, int32_t line) {
+  _assert_break();
+}
+
+typedef void (*cb_assertion_handler_fn)(const char *condition,
+                                        const char *file, int32_t line);
+internal cb_assertion_handler_fn cb_assertion_handler = cb_assertion_break;
+
+#define cb_assert(COND)                                \
+  do {                                                 \
+    if (!(COND)) {                                     \
+      cb_assertion_handler(#COND, __FILE__, __LINE__); \
+    }                                                  \
+  } while (0)
+
 #define StackPush(Head, Nodeptr)                                               \
   LLPushFrontCustom((Head), (Head), (Nodeptr), next)
 #define StackPop(Head) (Head ? (Head = Head->next) : 0)
@@ -215,7 +241,7 @@ enum {
     }                                                                       \
     (Dynarr)->Values = realloc((Dynarr)->Values, (Dynarr)->Capacity *       \
                                              sizeof((Dynarr)->Values[0]));  \
-    Assert((Dynarr)->Values);                                               \
+    cb_assert((Dynarr)->Values);                                            \
   } while(0)
 #define cb_dyn_push_custom(Dynarr, Node, Values, Count, Capacity) \
   do {                                                            \
@@ -276,13 +302,6 @@ static char* cb_format(const char *format, ...) {
 }
 
 static void cb_print(CB_LogLevel level, const char *fmt, ...) {
-#define ANSI_COLOR_RED     "\x1b[31m"
-#define ANSI_COLOR_GREEN   "\x1b[32m"
-#define ANSI_COLOR_YELLOW  "\x1b[33m"
-#define ANSI_COLOR_BLUE    "\x1b[34m"
-#define ANSI_COLOR_MAGENTA "\x1b[35m"
-#define ANSI_COLOR_CYAN    "\x1b[36m"
-#define ANSI_COLOR_RESET   "\x1b[0m"
   va_list args;
   switch (level) {
     case CB_LogLevel_Info: {
@@ -302,13 +321,6 @@ static void cb_print(CB_LogLevel level, const char *fmt, ...) {
   va_start(args, fmt);
   printf("%s", _cb_format(fmt, args));
   va_end(args);
-#undef ANSI_COLOR_RED
-#undef ANSI_COLOR_GREEN
-#undef ANSI_COLOR_YELLOW
-#undef ANSI_COLOR_BLUE
-#undef ANSI_COLOR_MAGENTA
-#undef ANSI_COLOR_CYAN
-#undef ANSI_COLOR_RESET
 }
 
 static char* cb_getenv(char *varname) {
@@ -352,7 +364,7 @@ static void cb_process_wait(CB_Process *proc) {
   CloseHandle(proc->handle);
 #else
   int32_t status = 0;
-  Assert(waitpid(proc->handle, &status, 0) == proc->handle);
+  cb_assert(waitpid(proc->handle, &status, 0) == proc->handle);
   if (WIFEXITED(status)) {
     proc->status_code = WEXITSTATUS(status);
   } else if (WIFSIGNALED(status)) {
@@ -636,7 +648,7 @@ internal CB_Process _cb_cmd_run(CB_Cmd *cmd, struct Cb_Cmd_RunArgs args) {
 }
 
 internal void _cb_rebuild(int argc, char **argv, char *builder_src, ...) {
-  Assert(argc >= 1);
+  cb_assert(argc >= 1);
   char *exe_name = argv[0];
 
   struct CB_PathList sources = {};
