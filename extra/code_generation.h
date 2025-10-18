@@ -35,10 +35,7 @@ static void cb_gen_write(CB_Generator *gen, char *filepath, bool append_mode) {
   free(full_string);
   cb_handle_close(file);
   cb_dyn_free(gen);
-
-  gen->signature.has_args = 0;
-  gen->signature.spacing = 0;
-  gen->total_length = 0;
+  memset(gen, 0, sizeof *gen);
 }
 
 static void cb_gen_push(CB_Generator *gen, char *string) {
