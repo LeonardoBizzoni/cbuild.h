@@ -233,9 +233,9 @@ cb_linagen_defun_vec3_cross(CB_Generator *gen, char *type,
   if (!implementation) { return; }
 
   cb_gen_push(gen, cb_format(" {" "\n  Vec3%s res = {0};", vec_suffix));
-  cb_gen_push(gen, "\n  res.values[0] = v1.values[1]*v2.values[2] - v1.values[2]*v2.values[1];");
-  cb_gen_push(gen, "\n  res.values[1] = v1.values[2]*v2.values[0] - v1.values[0]*v2.values[2];");
-  cb_gen_push(gen, "\n  res.values[2] = v1.values[0]*v2.values[1] - v1.values[1]*v2.values[0];");
+  cb_gen_push(gen, "\n  res.values[0] = v1.values[1] * v2.values[2] - v1.values[2] * v2.values[1];");
+  cb_gen_push(gen, "\n  res.values[1] = v1.values[2] * v2.values[0] - v1.values[0] * v2.values[2];");
+  cb_gen_push(gen, "\n  res.values[2] = v1.values[0] * v2.values[1] - v1.values[1] * v2.values[0];");
   cb_gen_push(gen, "\n  return res;"
                    "\n}\n\n");
 }
@@ -324,10 +324,13 @@ cb_linagen_defun_vecn_magnitude(CB_Generator *gen, char *type,
   cb_gen_push_func_end(gen, implementation);
   if (!implementation) { return; }
 
-  cb_gen_push(gen, cb_format(" {"
-                             "\n  float res = sqrtf((float)vec%d%s_dot(v1, v1));",
-                             n, type));
-  cb_gen_push(gen, "\n  return res;"
+  cb_gen_push(gen, " {\n  float dot = {0};");
+  for (int32_t i = 0; i < n; ++i) {
+    cb_gen_push(gen, cb_format("\n  dot += v1.values[%d] * v1.values[%d];",
+                               i, i));
+  }
+  cb_gen_push(gen, "\n  float res = sqrtf(dot);"
+                   "\n  return res;"
                    "\n}\n\n");
 }
 
@@ -342,10 +345,13 @@ cb_linagen_defun_vecn_magnitude64(CB_Generator *gen, char *type,
   cb_gen_push_func_end(gen, implementation);
   if (!implementation) { return; }
 
-  cb_gen_push(gen, cb_format(" {"
-                             "\n  double res = sqrt((double)vec%d%s_dot(v1, v1));",
-                             n, type));
-  cb_gen_push(gen, "\n  return res;"
+  cb_gen_push(gen, " {\n  double dot = {0};");
+  for (int32_t i = 0; i < n; ++i) {
+    cb_gen_push(gen, cb_format("\n  dot += v1.values[%d] * v1.values[%d];",
+                               i, i));
+  }
+  cb_gen_push(gen, "\n  double res = sqrt(dot);"
+                   "\n  return res;"
                    "\n}\n\n");
 }
 
