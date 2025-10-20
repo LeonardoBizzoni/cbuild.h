@@ -19,6 +19,9 @@ cb_linagen_typedef_vecn(CB_Generator *gen, char *type, int32_t n, ...);
 static void
 cb_linagen_typedef_vecn_unnamed(CB_Generator *gen, char *type, int32_t n);
 
+static void
+cb_linagen_typedef_matnn(CB_Generator *gen, char *type, int32_t n);
+
 static inline void
 cb_linagen_defun_vecn_add(CB_Generator *gen, char *type,
                           int32_t n, bool implementation);
@@ -84,6 +87,10 @@ static void
 cb_linagen_defun_vecn_normalize_assign(CB_Generator *gen, char *type,
                                        int32_t n, bool implementation);
 
+static void
+cb_linagen_defun_matnn_scale(CB_Generator *gen, char *type,
+                             int32_t n, bool implementation);
+
 // ======================================================================
 // Implementations
 
@@ -131,6 +138,21 @@ cb_linagen_typedef_vecn_unnamed(CB_Generator *gen, char *type, int32_t n) {
                              n, suffix, type, n, n, suffix));
 }
 
+static void
+cb_linagen_typedef_matnn(CB_Generator *gen, char *type, int32_t n) {
+  char *suffix = strdup(type);
+  *suffix = char_toupper(*type);
+  cb_gen_push(gen, cb_format("typedef union Mat%d%s {"
+                             "\n  %s values[%d][%d];"
+                             "\n  Vec%d%s cols[%d];"
+                             "\n  %s arr[%d];"
+                             "\n} Mat%d%s;\n\n",
+                             n, suffix,
+                             type, n, n,
+                             n, suffix, n,
+                             type, n * n,
+                             n, suffix));
+}
 
 static inline void
 cb_linagen_defun_vecn_add(CB_Generator *gen, char *type,
@@ -480,6 +502,31 @@ cb_linagen_defun_vecn_normalize_assign(CB_Generator *gen, char *type,
                                i, type));
   }
   cb_gen_push(gen, "\n}\n\n");
+}
+
+static void
+cb_linagen_defun_matnn_scale(CB_Generator *gen, char *type,
+                             int32_t n, bool implementation) {
+  char *suffix = strdup(type);
+  *suffix = char_toupper(*type);
+  cb_gen_push_func_begin(gen, cb_format("linagen_fn Mat%d%s mat%d%s_scale",
+                                        n, suffix, n, type));
+    cb_gen_push_func_arg(gen, cb_format("Mat%d%s m1", n, suffix));
+    cb_gen_push_func_arg(gen, cb_format("%s k", type));
+  cb_gen_push_func_end(gen, implementation);
+  if (!implementation) { return; }
+
+  cb_gen_push(gen, cb_format(" {"
+                             "\n  Mat%d%s res = {0};",
+                             n, suffix));
+  for (int32_t i = 0; i < n; ++i) {
+    for (int32_t j = 0; j < n; ++j) {
+      cb_gen_push(gen, cb_format("\n  res.values[%d][%d] = m1.values[%d][%d] * k;",
+                                 i, j, i, j));
+    }
+  }
+  cb_gen_push(gen, "\n  return res;"
+                   "\n}\n\n");
 }
 
 
