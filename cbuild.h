@@ -275,6 +275,7 @@ static void cb_cmd_print(CB_Cmd *cmd);
 static void cb_process_wait(CB_Process *handle);
 static void cb_proclist_wait(CB_ProcessList *procs);
 static CB_Handle cb_handle_open(char *path, CB_AccessFlag permission);
+static CB_Handle cb_handle_open_tmp(void);
 static void cb_handle_close(CB_Handle fd);
 static char* cb_handle_read(CB_Handle fd);
 static bool cb_dir_create(char *path);
@@ -418,6 +419,14 @@ static CB_Handle cb_handle_open(char *path, CB_AccessFlag permission) {
     flags |= O_WRONLY | O_TRUNC;
   }
   return open(path, flags, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+#endif
+}
+
+static CB_Handle cb_handle_open_tmp(void) {
+#if OS_WINDOWS
+#else
+  static char path[] = "/tmp/cbuild-XXXXXX";
+  return mkstemp(path);
 #endif
 }
 
