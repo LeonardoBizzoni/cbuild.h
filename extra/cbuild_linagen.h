@@ -1,5 +1,5 @@
-#ifndef CBUILD_EXTRA_LINEAR_ALGEBRA_H
-#define CBUILD_EXTRA_LINEAR_ALGEBRA_H
+#ifndef CBUILD_EXTRA_LINAGEN_H
+#define CBUILD_EXTRA_LINAGEN_H
 
 #include <stdarg.h>
 
@@ -19,7 +19,6 @@ static void
 cb_linagen_typedef_vecn(CB_Generator *gen, char *type, int32_t n, ...);
 static void
 cb_linagen_typedef_vecn_unnamed(CB_Generator *gen, char *type, int32_t n);
-
 static void
 cb_linagen_typedef_matnn(CB_Generator *gen, char *type, int32_t n);
 
@@ -44,15 +43,12 @@ cb_linagen_defun_vecn_near(CB_Generator *gen, char *type,
 static inline void
 cb_linagen_defun_vecn_lerp(CB_Generator *gen, char *type,
                            int32_t n, bool implementation);
-static inline void
-cb_linagen_defun_vec3_cross(CB_Generator *gen, char *type, bool implementation);
 static void
 cb_linagen_defun_vecn_scale(CB_Generator *gen, char *type,
                             int32_t n, bool implementation);
 static void
 cb_linagen_defun_vecn_normalize(CB_Generator *gen, char *type,
                                 int32_t n, bool implementation);
-
 static void
 cb_linagen_defun_vecn_dot(CB_Generator *gen, char *type,
                           int32_t n, bool implementation);
@@ -71,6 +67,9 @@ cb_linagen_defun_vecn_distance(CB_Generator *gen, char *type,
 static void
 cb_linagen_defun_vecn_distance2(CB_Generator *gen, char *type,
                                 int32_t n, bool implementation);
+
+static inline void
+cb_linagen_defun_vec3_cross(CB_Generator *gen, char *type, bool implementation);
 
 static void
 cb_linagen_defun_matnn_scale(CB_Generator *gen, char *type,

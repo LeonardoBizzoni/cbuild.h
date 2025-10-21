@@ -1,5 +1,5 @@
-#ifndef CBUILD_EXTRA_CODE_GENERATION_H
-#define CBUILD_EXTRA_CODE_GENERATION_H
+#ifndef CBUILD_EXTRA_CODEGEN_H
+#define CBUILD_EXTRA_CODEGEN_H
 
 typedef struct {
   char **values;

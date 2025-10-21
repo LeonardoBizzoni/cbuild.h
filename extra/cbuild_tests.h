@@ -1,5 +1,5 @@
-#ifndef TESTS_H
-#define TESTS_H
+#ifndef CBUILD_EXTRA_TESTS_H
+#define CBUILD_EXTRA_TESTS_H
 
 #include <setjmp.h>
 

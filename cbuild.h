@@ -75,6 +75,7 @@ typedef enum {false, true} bool;
 #  define WIN32_LEAN_AND_MEAN
 #  include <windows.h>
 #  include <direct.h>
+#  include <io.h>
 #  define win32_stdin stdin
 #  undef stdin
 #  define win32_stdout stdout
@@ -519,12 +520,11 @@ static bool cb_file_rename(char *path, char *to) {
 }
 
 static bool cb_file_exists(char *path) {
-  CB_Handle file = cb_handle_open(path, CB_AccessFlag_Read);
-  if (file == CB_HANDLE_INVALID) {
-    return false;
-  }
-  cb_handle_close(file);
-  return true;
+#if OS_WINDOWS
+#  define F_OK 0
+#  define access _access
+#endif
+  return access(path, F_OK) == 0;
 }
 
 
