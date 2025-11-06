@@ -219,7 +219,7 @@ enum {
                                                  (sizeof((char*[]){__VA_ARGS__}) / sizeof(char*)))
 #define cb_println(Level, Fmt, ...) cb_print((Level), Fmt "\n", ##__VA_ARGS__)
 #define cb_rebuild_self(argc, argv) _cb_rebuild(argc, argv, __FILE__, 0)
-#define cb_rebuild_self_with(argc, argv, ...) _cb_rebuild(argc, argv, __FILE__, __VA_ARGS__, 0)
+#define cb_rebuild_self_with(argc, argv, ...) _cb_rebuild(argc, argv, __FILE__, __VA_ARGS__, (char*)0)
 #define cb_is_outdated(OutputFile, ...) _cb_is_outdated((OutputFile), __VA_ARGS__, 0)
 #define cb_cmd_run(Cmd, ...) _cb_cmd_run((Cmd), (struct Cb_Cmd_RunArgs) { \
                                            .async = false,                \
@@ -526,7 +526,6 @@ static bool cb_file_exists(char *path) {
 #endif
   return access(path, F_OK) == 0;
 }
-
 
 internal bool _cb_is_outdated(char *output, ...) {
   struct CB_PathList sources = {};
