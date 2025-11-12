@@ -31,7 +31,7 @@ static void cb_gen_write(CB_Generator *gen, char *filepath, bool append_mode) {
   for (size_t i = 0; i < gen->count; ++i) {
     strcat(full_string, gen->values[i]);
   }
-  cb_handle_write(file, full_string);
+  _cb_handle_write_dyn(file, full_string);
   free(full_string);
   cb_handle_close(file);
   cb_dyn_free(gen);
