@@ -52,6 +52,7 @@
   X(CB_Token_Modifier_Const)              \
   X(CB_Token_Modifier_Static)             \
   X(CB_Token_Modifier_Extern)             \
+  X(CB_Token_Modifier_Register)           \
   X(CB_Token_Modifier_Restrict)           \
   X(CB_Token_Modifier_Volatile)           \
   X(CB_Token_CompilerDirective_Attribute)
@@ -164,8 +165,10 @@ internal CB_Token cb_clexer_get_token_keyword(void) {
   case 'd': {
     switch (*(cb_clexer.head + 1)) {
     case 'o': {
-      if (cb_cparser_lexer_token_matches("", 0, 2, CB_Token_ControlFlow_Do) == CB_Token_Literal_Identifier) {
-        return cb_cparser_lexer_token_matches("uble", 4, 2, CB_Token_Type_Double);
+      if (*(cb_clexer.head + 2) == 'u') {
+        return cb_cparser_lexer_token_matches("ble", 3, 3, CB_Token_Type_Double);
+      } else {
+        return cb_cparser_lexer_token_matches("", 0, 2, CB_Token_ControlFlow_Do);
       }
     } break;
     case 'e': {
@@ -216,7 +219,10 @@ internal CB_Token cb_clexer_get_token_keyword(void) {
     if (*(cb_clexer.head + 1) != 'e') { return CB_Token_Literal_Identifier; }
     switch (*(cb_clexer.head + 2)) {
     case 'g': {
-      return cb_cparser_lexer_token_matches("ister", 5, 3, CB_Token_ControlFlow_If);
+      return cb_cparser_lexer_token_matches("ister", 5, 3, CB_Token_Modifier_Register);
+    } break;
+    case 's': {
+      return cb_cparser_lexer_token_matches("trict", 5, 3, CB_Token_Modifier_Restrict);
     } break;
     case 't': {
       return cb_cparser_lexer_token_matches("urn", 3, 3, CB_Token_ControlFlow_Return);
@@ -280,6 +286,9 @@ internal CB_Token cb_clexer_get_token_keyword(void) {
   } break;
   case 'w': {
     return cb_cparser_lexer_token_matches("hile", 4, 1, CB_Token_ControlFlow_While);
+  } break;
+  case '_': {
+    return cb_cparser_lexer_token_matches("_attribute__", 12, 1, CB_Token_CompilerDirective_Attribute);
   } break;
   }
   return CB_Token_Literal_Identifier;
